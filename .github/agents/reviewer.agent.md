@@ -26,7 +26,10 @@ points you at (typically the changes on the current feature branch).
 - Every dummy argument has an explicit `intent(...)`.
 - No magic numbers (named constants instead).
 - No I/O in library code except explicitly documented procedures.
-- Consistent comment style (`! `), doc comments on the public API.
+- Consistent comment style (`! `), and FORD documentation (`!!` block right
+  after each module/type/procedure, trailing `!!` on arguments and public
+  components, `@author`/`@version`/`@license` in the top module block) on the
+  public API.
 - Formal correctness: consistent procedure interfaces between `use` sites and
   definitions, no unused variables/reached-end issues, pure where declared.
 

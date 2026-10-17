@@ -88,7 +88,12 @@ test: $(TEST_BINS)
 		done; \
 	fi
 
+# FORD HTML API documentation, rendered from the `!!` doc comments into
+# build/docs (inside $(BUILD), so `clean` removes it along with everything).
+docs:
+	ford ford.md
+
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: release debug test clean
+.PHONY: release debug test docs clean

@@ -1,3 +1,5 @@
+> **AI Generated**
+
 # Fortran Neural Network
 
 A neural network library implemented in modern **Fortran** (Fortran 2008),

@@ -5,6 +5,8 @@ tools: [read, edit, search]
 user-invocable: false
 ---
 
+> **AI Generated**
+
 You are the **implementer** for the Fortran Neural Network project. You work
 only for the orchestrator — never address the human directly, and never
 coordinate with other agents.

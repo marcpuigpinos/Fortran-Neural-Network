@@ -1,8 +1,27 @@
+> **AI Generated**
+
 # Fortran Neural Network — Agent Instructions
 
 Neural network library implemented in modern Fortran. This file is the single
 source of truth for project conventions. All agents (orchestrator and
 subagents) must follow it.
+
+## AI-generated attribution
+
+This project is developed with AI assistance: every file created in this
+project — Fortran sources, tests, Markdown documents, the Makefile, scripts
+and config files — must state that it is AI-generated, right at the top of
+the file, using the comment syntax of its type:
+
+- Fortran (`*.f90`): `! AI Generated` before the `module` / `program`
+  statement.
+- Markdown (`*.md`): `> **AI Generated**` as the first line of the file
+  (immediately after any YAML frontmatter).
+- Makefiles, shell scripts and config files (including dotfiles such as
+  `.gitignore`): `# AI Generated` as the first line.
+
+The marker is permanent: the reviewer flags any new or modified file missing
+it as an ERROR.
 
 ## Toolchain
 

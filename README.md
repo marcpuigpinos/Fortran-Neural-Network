@@ -36,7 +36,7 @@ Fortran-Neural-Network/
 ├── tests/        # Standalone test programs: test_<topic>.f90
 ├── docs/         # Design docs + CHANGELOG.md (per-version entries)
 ├── build/        # Generated artifacts (never committed)
-├── Makefile      # release / debug / test / clean targets
+├── Makefile      # release / debug / test / docs / clean targets
 ├── VERSION       # semantic version (MAJOR.MINOR.PATCH)
 └── AGENTS.md     # Project conventions, source of truth for all agents
 ```
@@ -69,6 +69,7 @@ All builds run from the repository root through the `Makefile`:
 | `make release` | Optimized build (`-O2`) | `build/release/` |
 | `make debug`   | Checked build (`-g -fcheck=all -Wall -Wextra`) | `build/debug/` |
 | `make test`    | Build the test suite and run it against the debug build | — |
+| `make docs`    | Generate the FORD HTML API documentation | `build/docs/` |
 | `make clean`   | Remove build artifacts | — |
 
 Tests are discovered automatically from `tests/test_*.f90`; adding a new test
@@ -113,6 +114,7 @@ flowchart TD
     O --> R[reviewer: check style]
     O --> G2[git-manager: bump version]
     O --> D[documenter: update docs]
+    O --> B3[builder: build FORD docs]
     O --> G3[git-manager: commit]
 
     B1 -. build fails .-> I
@@ -122,15 +124,15 @@ flowchart TD
 
 Standard flow: branch → implement → build → write tests → build tests → run
 tests (looping back to the implementer on failure) → review (with rebuild and
-retest after each change) → bump version → document → commit on the feature
-branch. A branch is merged into `main` only when the human explicitly asks the
-orchestrator to do so.
+retest after each change) → bump version → document → build the FORD docs
+(final build step) → commit on the feature branch. A branch is merged into
+`main` only when the human explicitly asks the orchestrator to do so.
 
 | Agent | Role | Talks to |
 |---|---|---|
 | `orchestrator` | Coordinates everything; the only human-facing agent | Human + all agents |
 | `implementer` | Writes/fixes the Fortran implementation | Orchestrator |
-| `builder` | Owns the `Makefile`; verifies builds | Orchestrator |
+| `builder` | Owns the `Makefile`; verifies builds and generates the FORD docs | Orchestrator |
 | `tester` | Creates and runs the tests | Orchestrator |
 | `reviewer` | Checks code style and formal correctness | Orchestrator |
 | `git-manager` | Branches, version bumps, commits, merges | Orchestrator |

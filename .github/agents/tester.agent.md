@@ -22,6 +22,10 @@ Read `AGENTS.md` at the repo root first; it defines the test conventions.
    Each test: exercises one area, prints `PASS <name>` on success, and aborts
    with `error stop 1` plus a `FAIL <name> <reason>` message on failure. Tests
    must be deterministic and need no interaction.
+   Document each test in **FORD style** (see `AGENTS.md` → "Documentation
+   (FORD)"): a `!!` block immediately after the `program` statement stating
+   what the test verifies, and a trailing `!! ...` on each significant local
+   declaration. The `! AI Generated` marker stays as the file's first line.
 4. Build and run the suite with `make test` (debug build). If the compiler is
    not configured, report it as a blocker rather than changing the toolchain.
 5. Report results honestly — never weaken or delete an assertion just to make

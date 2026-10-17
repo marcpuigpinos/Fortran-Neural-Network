@@ -24,7 +24,12 @@ you must follow.
    following every style rule in `AGENTS.md`: `implicit none` everywhere,
    `private` default with explicit `public ::` exports, `intent` on all dummy
    arguments, 4-space indentation, 100-char lines, named constants.
-4. Keep the public API minimal and documented with brief doc comments.
+4. Document the code in **FORD style** (see the "Documentation (FORD)"
+   section of `AGENTS.md`): `!!` doc blocks placed immediately after each
+   `module`/`type`/procedure statement, a trailing `!! ...` comment on every
+   dummy argument and public component, and `@author`/`@version`/`@license`
+   metadata in the top module block. Keep the public API minimal; every
+   exported entity must be FORD-documented.
 
 ## Constraints
 

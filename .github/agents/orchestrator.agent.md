@@ -52,9 +52,14 @@ conventions and the build commands.
    features, patch for fixes) in `VERSION`.
 9. **Document** — Tell `documenter` to document the changes referencing the
    new version.
-10. **Commit** — Tell `git-manager` to stage and commit all changes on the
+10. **Build docs** — As the LAST build task before committing, tell `builder`
+    to generate the FORD documentation (`make docs`) and confirm the build is
+    clean. Failures caused by undocumented or malformed `!!` comments go back
+    to `implementer` (then rebuild and retest, steps 3, 5, 6); content
+    problems go back to `documenter`.
+11. **Commit** — Tell `git-manager` to stage and commit all changes on the
     feature branch with a message referencing the version.
-11. Report completion, the branch name and the version to the human.
+12. Report completion, the branch name and the version to the human.
 
 ## Merge flow
 

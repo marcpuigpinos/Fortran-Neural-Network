@@ -1,0 +1,41 @@
+# Build artifacts
+build/
+
+# Fortran object and module files
+*.o
+*.obj
+*.mod
+*.smod
+*.smod95
+
+# Libraries and executables
+*.a
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.out
+*.f90.mod
+
+# Debug/coverage artifacts
+*.gcno
+*.gcda
+*.gdb_history
+valgrind.out.*
+core
+
+# Editor / IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Python caches (tooling scripts)
+__pycache__/
+*.py[cod]

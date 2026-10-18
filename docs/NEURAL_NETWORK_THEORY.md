@@ -3,18 +3,14 @@
 # Neural Network Theory
 
 This document records the conceptual and mathematical foundations of the dense
-(fully-connected) neural network that the Fortran-Neural-Network library
-targets. It is a **theory/design reference**, not a release note: as of version
-**0.0.2** the implemented library exposes only `get_version()` (see
-[`ARCHITECTURE.md`](ARCHITECTURE.md)); the `Layer`/`Network` types described in
-the final section are planned, not yet present in `src/`. For the authoritative
-style and naming rules see [`AGENTS.md`](../AGENTS.md).
+(fully-connected) neural network.
 
 The material below collects a guided study session covering three linked topics
 — the neuron/perceptron, layers and networks, and the training loop — followed
-by a mapping from the mathematics to the planned Fortran design and a curated
-reference list. Math is written KaTeX-style with `$...$` inline and `$$...$$`
-display.
+by a curated reference list. It is a pure theory reference: the mathematical
+framework it establishes is what future features of this project must conform
+to, but no implementation detail belongs here. Math is written KaTeX-style
+with `$...$` inline and `$$...$$` display.
 
 ## 1. The Neuron / Perceptron
 
@@ -169,9 +165,7 @@ W = \begin{pmatrix}
 \mathbf{h} \in \mathbb{R}^{m}
 $$
 
-and $\varphi$ is applied **element-wise**. Note the shape: $W$ is
-$(n_{\text{out}} \times n_{\text{in}})$ — exactly the convention chosen for
-`weights(:,:)` in the `Layer` example of `AGENTS.md` (see §4). Each layer has
+and $\varphi$ is applied **element-wise**. Each layer has
 $n \times m + m$ learnable parameters ($nm$ weights plus $m$ biases): the
 parameter count grows **quadratically** in the layer widths, which is why width
 is a cost to be spent deliberately.
@@ -222,8 +216,8 @@ In a **multilayer perceptron (MLP)** the layers have roles:
 - the **output layer** produces the prediction $\hat{\mathbf{y}}$.
 
 It is a **feedforward** network: signal flows strictly forward, layer to
-layer, with no cycles (as opposed to recurrent networks). This library targets
-the feedforward dense architecture.
+layer, with no cycles (as opposed to recurrent networks). The dense
+feedforward architecture is the one studied throughout this document.
 
 ### 2.4 Universal Approximation Theorem
 
@@ -403,37 +397,7 @@ for each training epoch:
 The loop is literally "forward → backward → update", repeated until the loss
 stops improving.
 
-## 4. Mapping to the Planned Fortran Implementation
-
-The mathematics above maps onto the `Layer`/`Network` design sketched in
-`AGENTS.md` (reproduced as FORD-documented sample code, not yet part of the
-build). The correspondences:
-
-| Mathematics | Fortran design (`AGENTS.md`) |
-|---|---|
-| Weights $W$, stored as $(n_{\text{out}} \times n_{\text{in}})$ | `weights(:,:)`, dimensioned `(out, in)` |
-| Bias vector $\mathbf{b} \in \mathbb{R}^{m}$ | `bias(:)`, length `n_out` |
-| $\mathbf{h} = \varphi(W\mathbf{x} + \mathbf{b})$ | `layer_forward` returns `activation(matmul(self%weights, x) + self%bias)` |
-| Activation $\sigma$ and its derivative $\sigma'$ | each activation needs a paired `sigma_prime` for the backward pass |
-| Weight gradient $\dfrac{\partial L}{\partial W^{(l)}} = \boldsymbol{\delta}^{(l)}(\mathbf{a}^{(l-1)})^{\top}$ | an **outer product**: `delta(i) * a_prev(j)` → `dW(i, j)` |
-| Error propagation $\boldsymbol{\delta}^{(l-1)} = (W^{(l)})^{\top}\boldsymbol{\delta}^{(l)} \odot \sigma'(\mathbf{z}^{(l-1)})$ | `matmul(transpose(W), delta)` followed by element-wise `sigma_prime(z_prev)` |
-| Forward-pass caching of $\mathbf{a}, \mathbf{z}$ | the forward routine must retain per-layer activations for the backward routine |
-
-A note on **memory layout**: Fortran arrays are **column-major**, while the
-math above treats examples as column vectors (so $W$ is `(out, in)` and
-`matmul(W, x)` is a matrix–vector product over a leading dimension indexed
-last). When batching, storing a mini-batch **column-wise** — examples down the
-columns, features across the rows — keeps the contiguity Fortran wants and turns
-`matmul(W, X_batch)` into a single GEMM. This is the layout the implementation
-should adopt so that the per-example decomposition of §3.1 (average over
-examples) also becomes a clean matrix operation over columns.
-
-These mappings use `real(real64)` and the `pure`/`intent`-annotated style
-mandated by `AGENTS.md`; the backward routine breaks `pure`-ness (it mutates
-parameters) and so is expressed as a separate subroutine, with `forward` kept
-`pure` where feasible.
-
-## 5. References
+## 4. References
 
 Wikipedia:
 

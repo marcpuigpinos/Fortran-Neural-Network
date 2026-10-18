@@ -18,7 +18,9 @@ Read `AGENTS.md` at the repo root first; it defines the test conventions.
 1. Determine what must be tested from the orchestrator's assignment (the
    feature under test and any edge cases the implementer flagged).
 2. Inspect `tests/` to reuse patterns and avoid duplication.
-3. Write new tests in `tests/` as standalone programs named `test_<topic>.f90`.
+3. Write new tests in `tests/` as standalone programs. Name each file
+   `test<MainNameInPascalCase>.f90` (e.g. `testVersion.f90`) and give the
+   `program` the same name as the file (e.g. `program testVersion`).
    Each test: exercises one area, prints `PASS <name>` on success, and aborts
    with `error stop 1` plus a `FAIL <name> <reason>` message on failure. Tests
    must be deterministic and need no interaction.

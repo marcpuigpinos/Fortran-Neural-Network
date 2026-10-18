@@ -40,21 +40,25 @@ it as an ERROR.
 
 ```
 src/        Fortran sources (library modules), one module per file
-tests/      Test programs, one per file, named test_*.f90 (f90 for tests)
+tests/      Test programs, one per file, named test<Name>.f90 (PascalCase)
 docs/       Design docs and CHANGELOG.md (per-version entries)
 build/      Generated artifacts (never committed)
 ```
 
 ## Code style (enforced by the reviewer)
 
-- Free-form source files with `.f90` extension; file name equals the module
-  name it contains (case-insensitive).
+- Free-form source files with a `.f90` extension. A file's name does NOT
+  have to match the module it contains: one `.f90` file may define a module
+  named differently (e.g. `fortranNeuralNetwork.f90` defines
+  `mFortranNeuralNetwork`).
 - `implicit none` in **every** scoping unit.
 - Everything in a module is `private` by default; exports are listed
   explicitly in a `public :: ...` statement right after the accessibility
   attribute.
-- Derived types: `PascalCase`. Modules, procedures, variables, constants:
-  `snake_case`. Named constants instead of magic numbers.
+- Derived types: `PascalCase`. Procedures, variables and constants:
+  `snake_case`. Modules: `m` immediately followed by a `PascalCase` name
+  (e.g. `mLayer`, `mNeuralNetwork`). Named constants instead of magic
+  numbers.
 - 4-space indentation, no tabs, maximum line length 100 characters.
 - All dummy arguments carry an explicit `intent(...)`.
 - Pure functions where possible; no I/O inside library code except through
@@ -86,7 +90,7 @@ Rules:
   documentation uses `!!`.
 
 ```fortran
-module nn_layer
+module mLayer
     implicit none
     private
 
@@ -117,15 +121,18 @@ contains
         ! ...implementation...
     end function layer_forward
 
-end module nn_layer
+end module mLayer
 ```
 
 ## Testing
 
-- Each test is a standalone program `test_<topic>.f90` that exits with a
-  non-zero status on failure (`error stop 1`) and prints a one-line
+- Each test is a standalone program in a file named
+  `test<MainNameInPascalCase>.f90` (e.g. `testVersion.f90`), where the main
+  thing under test is written in `PascalCase`. The `program` statement uses
+  the same name as the file (e.g. `program testVersion`). A test exits with
+  a non-zero status on failure (`error stop 1`) and prints a one-line
   `PASS <name>` / `FAIL <name> ...` result.
-- The Makefile discovers `tests/test_*.f90` automatically; adding a test must
+- The Makefile discovers `tests/test*.f90` automatically; adding a test must
   not require Makefile edits. If it does, report it so the builder fixes the
   Makefile.
 

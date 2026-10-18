@@ -19,7 +19,7 @@ Documentation is generated with **FORD**.
 1. On a build request, run `make release` and `make debug` (or the specific
    target the orchestrator asks for) from the repo root.
 2. On a test-build request, run `make test` (or the compile-only part if the
-   orchestrator asks to skip execution) so that every `tests/test_*.f90`
+   orchestrator asks to skip execution) so that every `tests/test*.f90`
    compiles.
 3. A code build is clean only if the release and debug targets compile with
    zero errors AND zero warnings from the debug flags (`-Wall -Wextra`).
@@ -36,7 +36,7 @@ Documentation is generated with **FORD**.
      entities or bad `!!` syntax so the orchestrator can route them to the
      implementer/tester.
 5. Keep the Makefile correct: module dependency handling, automatic discovery
-   of `tests/test_*.f90`, build artifacts confined to `build/release/`,
+   of `tests/test*.f90`, build artifacts confined to `build/release/`,
    `build/debug/` and `build/docs/`, and the targets documented in AGENTS.md
    (release, debug, test, docs, clean).
 6. When you must fix the Makefile, the FORD config, or build configuration,

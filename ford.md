@@ -1,6 +1,6 @@
 project: Fortran Neural Network
 summary: Neural network library implemented in modern Fortran.
-version: 0.0.0
+version: 0.0.1
 author: Fortran-Neural-Network project
 license: MIT
 src_dir: src

@@ -28,12 +28,12 @@ developed through a structured, role-based multi-agent workflow (see
 ## Architecture
 
 The code follows a modular layout where each module lives in its own
-free-form `.f90` file named after the module it contains:
+free-form `.f90` file; the file name need not match the module name:
 
 ```
 Fortran-Neural-Network/
 ├── src/          # Fortran library sources (one module per file)
-├── tests/        # Standalone test programs: test_<topic>.f90
+├── tests/        # Standalone test programs: test<PascalCase>.f90
 ├── docs/         # Design docs + CHANGELOG.md (per-version entries)
 ├── build/        # Generated artifacts (never committed)
 ├── Makefile      # release / debug / test / docs / clean targets
@@ -47,7 +47,8 @@ Fortran-Neural-Network/
   what belongs in its public API via an explicit `public :: ...` statement.
 - **Explicit data flow** — all dummy arguments carry an explicit `intent(...)`.
 - **Typed structures** — domain concepts are modelled as `PascalCase` derived
-  types; modules, procedures, and variables use `snake_case`.
+  types; procedures, variables, and constants use `snake_case`, and modules
+  use `m` + `PascalCase` (e.g. `mFortranNeuralNetwork`).
 - **No hidden constants** — named constants replace magic numbers.
 - **Pure where possible** — library routines avoid side effects and I/O except
   through explicitly documented procedures.
@@ -72,12 +73,13 @@ All builds run from the repository root through the `Makefile`:
 | `make docs`    | Generate the FORD HTML API documentation | `build/docs/` |
 | `make clean`   | Remove build artifacts | — |
 
-Tests are discovered automatically from `tests/test_*.f90`; adding a new test
+Tests are discovered automatically from `tests/test*.f90`; adding a new test
 does not require editing the `Makefile`.
 
 ## Testing
 
-Each test is a standalone program `tests/test_<topic>.f90` that:
+Each test is a standalone program `tests/test<Name>.f90` (PascalCase, e.g.
+`testVersion.f90`) that:
 
 - exercises one area of the library,
 - prints `PASS <name>` on success,

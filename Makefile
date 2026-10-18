@@ -16,7 +16,7 @@ TESTDIR := tests
 
 # Discovery runs on every make invocation; tests/ may be absent or empty.
 SRCS := $(wildcard $(SRCDIR)/*.f90)
-TEST_SRCS := $(wildcard $(TESTDIR)/test_*.f90)
+TEST_SRCS := $(wildcard $(TESTDIR)/test*.f90)
 
 LIB_STEMS := $(basename $(notdir $(SRCS)))
 RELEASE_OBJS := $(addprefix $(BUILD)/release/,$(addsuffix .o,$(LIB_STEMS)))
@@ -80,7 +80,7 @@ $(BUILD)/debug/%: $(BUILD)/debug/%.o $(DEBUG_OBJS)
 
 test: $(TEST_BINS)
 	@if [ -z "$(TEST_BINS)" ]; then \
-		echo "SKIP: no tests found (tests/test_*.f90)"; \
+		echo "SKIP: no tests found (tests/test*.f90)"; \
 	else \
 		for t in $(TEST_BINS); do \
 			echo "RUN $$t"; \

@@ -20,8 +20,10 @@ points you at (typically the changes on the current feature branch).
   the "AI-generated attribution" section of `AGENTS.md` (ERROR if missing).
 - `implicit none` in every scoping unit.
 - Modules `private` by default with an explicit `public ::` export list.
-- Naming: `PascalCase` derived types, `snake_case` everything else; file name
-  matches the module it contains; `.f90` free-form files.
+- Naming: `PascalCase` derived types; `snake_case` procedures, variables and
+  constants; modules use `m` + `PascalCase` (e.g. `mLayer`); tests are
+  `test<PascalCase>.f90` with a same-named `program`; a file's name need NOT
+  match the module it contains; `.f90` free-form files.
 - 4-space indentation, no tabs, max 100 characters per line.
 - Every dummy argument has an explicit `intent(...)`.
 - No magic numbers (named constants instead).

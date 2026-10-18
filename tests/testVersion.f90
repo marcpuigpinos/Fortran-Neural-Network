@@ -1,11 +1,11 @@
 ! AI Generated
-program test_version
+program testVersion
     !! Verify the library version reporting of `get_version`.
     !!
     !! Checks that the string returned by the library equals the expected
-    !! VERSION-synced string (currently '0.0.0') and that its allocation
+    !! VERSION-synced string (currently '0.0.1') and that its allocation
     !! length matches the expected string's length exactly. Prints
-    !! `PASS test_version` on success; prints a `FAIL test_version ...`
+    !! `PASS testVersion` on success; prints a `FAIL testVersion ...`
     !! message and aborts with `error stop 1` on any mismatch.
 
     use mFortranNeuralNetwork, only: get_version
@@ -13,8 +13,8 @@ program test_version
     implicit none
 
     ! Test name reused in every message so failures identify the suite entry.
-    character(len=*), parameter :: test_name = 'test_version'  !! Name used in PASS/FAIL messages
-    character(len=*), parameter :: expected_version = '0.0.0'  !! Version matching the VERSION file
+    character(len=*), parameter :: test_name = 'testVersion'  !! Name used in PASS/FAIL messages
+    character(len=*), parameter :: expected_version = '0.0.1'  !! Version matching the VERSION file
 
     character(len=:), allocatable :: version  !! Version string returned by the library
 
@@ -37,4 +37,4 @@ program test_version
 
     print '(A, 1X, A)', 'PASS', test_name
 
-end program test_version
+end program testVersion

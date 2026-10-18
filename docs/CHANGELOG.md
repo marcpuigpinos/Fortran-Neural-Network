@@ -7,6 +7,32 @@ Changelog](https://keepachangelog.com/) format, following [semantic
 versioning](https://semver.org/). The current release is also recorded in the
 `VERSION` file at the repository root. Entries are listed newest first.
 
+## [0.0.1] - 2026-10-18
+
+### Changed
+
+- **Naming conventions (supersedes the `0.0.0` "approved naming exception").** The
+  rules in `AGENTS.md` were relaxed and a module-naming convention adopted:
+  - A source `.f90` file's name no longer has to equal the module it contains
+    (e.g. `fortranNeuralNetwork.f90` defining `mFortranNeuralNetwork` is now the
+    standard, not an exception).
+  - Modules follow `m` + `PascalCase` (e.g. `mLayer`, `mFortranNeuralNetwork`);
+    derived types remain `PascalCase` and procedures/variables/constants remain
+    `snake_case`.
+  - Tests are named `test<MainNameInPascalCase>.f90` with a same-named `program`
+    (e.g. `testVersion.f90` / `program testVersion`); the `Makefile` now discovers
+    `tests/test*.f90` instead of `tests/test_*.f90`.
+
+### Notes
+
+- The library version string, the test's expected value, the `@version` FORD tag
+  and `ford.md` were all synced to `0.0.1`.
+- `ford.md` carries its `> **AI Generated**` marker as the first body
+  line below the FORD `key: value` meta block, because FORD's
+  Markdown "meta" parser cannot carry a leading `#`-style comment as
+  the file's first line. This mirrors the build-system adaptation
+  style of the `0.0.0` entry.
+
 ## [0.0.0] - 2026-10-17
 
 Initial project bootstrap (branch `feature/project-bootstrap`). Establishes

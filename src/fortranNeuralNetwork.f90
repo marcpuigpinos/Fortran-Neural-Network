@@ -8,7 +8,7 @@ module mFortranNeuralNetwork
     !! VERSION file at the repo root.
     !!
     !! @author Fortran-Neural-Network project
-    !! @version 0.0.0
+    !! @version 0.0.1
     !! @license MIT
 
     implicit none
@@ -19,7 +19,7 @@ module mFortranNeuralNetwork
 
     ! Single source of truth for the library version; kept in sync with
     ! the VERSION file.
-    character(len=*), private, parameter :: library_version = "0.0.0"
+    character(len=*), private, parameter :: library_version = "0.0.1"
 
 contains
 

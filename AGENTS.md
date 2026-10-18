@@ -25,6 +25,12 @@ template), the `> **AI Generated**` marker is the first body line *after*
 FORD's leading `key: value` meta block, as FORD's Markdown "meta" parser only
 reads leading key/value lines.
 
+Exception: feature files in `features/` are human-authored specifications
+maintained by the `feature-manager`, so their marker is `> **AI Assisted**`
+instead of `> **AI Generated**`. The human may or may not write it when
+creating the file; `feature-manager` adds `> **AI Assisted**` if no
+attribution marker is present and leaves an existing marker untouched.
+
 The marker is permanent: the reviewer flags any new or modified file missing
 it as an ERROR.
 
@@ -47,8 +53,33 @@ it as an ERROR.
 src/        Fortran sources (library modules), one module per file
 tests/      Test programs, one per file, named test<Name>.f90 (PascalCase)
 docs/       Design docs and CHANGELOG.md (per-version entries)
+features/   Feature specification files (finished ones in features/finished/)
 build/      Generated artifacts (never committed)
 ```
+
+## Feature tracking
+
+Each feature is a Markdown file in `features/` named
+`YYYYMMDD_NN_<short-name>.md` (creation date plus a two-digit sequence for
+the day). The human writes the specification; the `feature-manager` agent is
+the only one allowed to edit these files.
+
+- Every feature file starts with this metadata header, in this exact order:
+
+  ```markdown
+  > **AI Assisted**
+  > Status: pending | ongoing | finished
+  > Branch: feature/<short-name> (or — when not started)
+  > Merge commit: <full hash> (or — when not merged)
+  ```
+
+- `Status: pending` when created, `ongoing` once a branch exists, `finished`
+  only after the merge into `main`.
+- A `## Progress` section at the end of the file holds dated one-line
+  entries appended by `feature-manager` (summaries of committed work).
+- When a feature is finished, `feature-manager` records the full merge
+  commit hash in the header and moves the file to `features/finished/`.
+  The bookkeeping commit on `main` is made by `git-manager`.
 
 ## Code style (enforced by the reviewer)
 
@@ -151,18 +182,25 @@ Standard feature flow:
 
 1. Human gives the specification to `orchestrator`.
 2. `git-manager` updates the repo and creates a feature branch.
-3. `implementer` writes the Fortran code on that branch.
-4. `builder` builds the project (release + debug); failures loop back to `implementer`.
-5. `tester` writes new tests if needed.
-6. `builder` builds the tests.
-7. `tester` runs the full suite; failures loop back to `implementer` (rebuild + retest).
-8. `reviewer` checks style and formal correctness; findings are routed by the
+3. `feature-manager` marks the feature file `ongoing` and records the branch
+   (`start`).
+4. `implementer` writes the Fortran code on that branch.
+5. `builder` builds the project (release + debug); failures loop back to `implementer`.
+6. `tester` writes new tests if needed.
+7. `builder` builds the tests.
+8. `tester` runs the full suite; failures loop back to `implementer` (rebuild + retest).
+9. `reviewer` checks style and formal correctness; findings are routed by the
    orchestrator to the responsible agent and **every resulting change is
    rebuilt and retested**.
-9. `git-manager` bumps the version in `VERSION`.
-10. `documenter` documents the changes in `docs/`, referencing the new version.
-11. `builder` generates the FORD documentation (`make docs`) as the final
+10. `git-manager` bumps the version in `VERSION`.
+11. `documenter` documents the changes in `docs/`, referencing the new version.
+12. `builder` generates the FORD documentation (`make docs`) as the final
     build task before committing.
-12. `git-manager` commits everything on the feature branch.
-13. Merging into `main` happens only when the human explicitly instructs the
-    orchestrator.
+13. `git-manager` commits everything on the feature branch.
+14. `feature-manager` appends a progress entry to the feature file with a
+    summary, commit hash, branch and version (`update`).
+15. Merging into `main` happens only when the human explicitly instructs the
+    orchestrator: `git-manager` merges (`--no-ff`) and deletes the branch;
+    `feature-manager` marks the file `finished`, records the merge commit
+    hash and moves it to `features/finished/`; `git-manager` commits that
+    bookkeeping change on `main`.

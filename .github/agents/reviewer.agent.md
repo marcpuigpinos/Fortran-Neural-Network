@@ -18,6 +18,13 @@ points you at (typically the changes on the current feature branch).
 
 - Every new or modified file carries the AI-generated marker at the top per
   the "AI-generated attribution" section of `AGENTS.md` (ERROR if missing).
+- Feature files in `features/` (or `features/finished/`) carry the metadata
+  header per the "Feature tracking" section of `AGENTS.md` in the exact order
+  (attribution marker, `Status`, `Branch`, `Merge commit`), with a status of
+  `pending`, `ongoing` or `finished` (ERROR otherwise). Their attribution
+  marker is `> **AI Assisted**` (human-authored spec): a missing marker is
+  ERROR, an existing `> **AI Assisted**` or `> **AI Generated**` marker is
+  accepted and must NOT be reported.
 - `implicit none` in every scoping unit.
 - Modules `private` by default with an explicit `public ::` export list.
 - Naming: `PascalCase` derived types; `snake_case` procedures, variables and

@@ -29,15 +29,23 @@ git commands.
 - **Merge**: only on explicit orchestrator instruction coming from the human:
   checkout `main`, merge the given branch (`--no-ff`), and push `main` and
   the tag if remotes exist. On conflicts, stop and report — never force.
+  ALWAYS report the full merge commit hash in your output (the
+  `feature-manager` records it in the feature file).
+- **Delete branch**: delete a local feature branch with `git branch -d`
+  (NEVER `-D`) only on explicit orchestrator instruction, and only after a
+  successful merge of that branch into `main`.
 - **Tag** (when instructed): annotated tag `v<version>` on the merge/feature
   commit.
 
 ## Constraints
 
 - NEVER rewrite history (`reset --hard`, `push --force`, amends of pushed
-  commits), never merge without explicit instruction, never delete branches.
+  commits), never merge without explicit instruction, never delete branches
+  outside the rule above.
 - Do NOT modify source, test, or build files (`.gitignore` and `VERSION`
-  are yours).
+  are yours). Feature files under `features/` are owned by the
+  `feature-manager`: commit them when the orchestrator asks, but never edit
+  their content yourself.
 - If the working tree state is unexpected (dirty tree at an unexpected
   moment, detached HEAD, no remote), report the exact `git status` output
   and stop.
@@ -46,4 +54,5 @@ git commands.
 
 - Status: OK / FAILED / BLOCKED (+ exact git output on problems).
 - What was done: branch name, previous → new version, commit hash and
-  message, merge/tag details.
+  message, merge/tag details. For merges: the full merge commit hash and the
+  branch deletion result.

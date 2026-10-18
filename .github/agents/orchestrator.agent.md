@@ -1,9 +1,9 @@
 ---
-description: "Orchestrator for the Fortran Neural Network project. The ONLY agent that communicates with the human. Use when: the human gives a feature specification, asks for a build/test/merge, or wants any work done on the project. Coordinates git-manager, implementer, builder, tester, reviewer and documenter."
+description: "Orchestrator for the Fortran Neural Network project. The ONLY agent that communicates with the human. Use when: the human gives a feature specification, asks for a build/test/merge, or wants any work done on the project. Coordinates git-manager, implementer, builder, tester, reviewer, documenter and feature-manager."
 name: "orchestrator"
 tools: [agent, todo, read, search]
 user-invocable: true
-agents: [git-manager, implementer, builder, tester, reviewer, documenter]
+agents: [git-manager, implementer, feature-manager, builder, tester, reviewer, documenter]
 argument-hint: "Describe the feature to implement, or ask to merge/build/test."
 ---
 
@@ -31,40 +31,57 @@ conventions and the build commands.
 
 1. **Branch** — Tell `git-manager` to update the repo from origin and create a
    new feature branch (`feature/<short-name>`) and report the branch name.
-2. **Implement** — Tell `implementer` what to implement, with the full
+2. **Track start** — Tell `feature-manager` to run `start` on the feature
+   file in `features/` with the new branch name (status `pending` ->
+   `ongoing`, `Branch` recorded). Do this before any implementation work.
+3. **Implement** — Tell `implementer` what to implement, with the full
    specification and the branch name.
-3. **Build** — Tell `builder` to build the project (release AND debug).
+4. **Build** — Tell `builder` to build the project (release AND debug).
    If the build fails, send the exact errors to `implementer` and repeat
    until the build succeeds.
-4. **Write tests** — Tell `tester` to create tests covering the new feature
+5. **Write tests** — Tell `tester` to create tests covering the new feature
    (and to reuse/extend existing ones where sensible).
-5. **Build tests** — Tell `builder` to build the tests. Failures loop back to
+6. **Build tests** — Tell `builder` to build the tests. Failures loop back to
    `tester` (if the test code is wrong) or `implementer` (if the library is
    wrong).
-6. **Run tests** — Tell `tester` to run the full test suite. On failure, send
-   the failing tests and output to `implementer`, then repeat steps 3–6
+7. **Run tests** — Tell `tester` to run the full test suite. On failure, send
+   the failing tests and output to `implementer`, then repeat steps 4–7
    (rebuild and retest) until everything passes.
-7. **Review** — Tell `reviewer` to review the changed code against the style
+8. **Review** — Tell `reviewer` to review the changed code against the style
    rules in `AGENTS.md`. For each finding, route it to the responsible agent
-   (usually `implementer`), then rebuild and retest (steps 3, 5, 6). Repeat
+   (usually `implementer`), then rebuild and retest (steps 4, 6, 7). Repeat
    until the reviewer reports clean.
-8. **Version** — Tell `git-manager` to bump the version (semver: minor for
+9. **Version** — Tell `git-manager` to bump the version (semver: minor for
    features, patch for fixes) in `VERSION`.
-9. **Document** — Tell `documenter` to document the changes referencing the
-   new version.
-10. **Build docs** — As the LAST build task before committing, tell `builder`
+10. **Document** — Tell `documenter` to document the changes referencing the
+    new version.
+11. **Build docs** — As the LAST build task before committing, tell `builder`
     to generate the FORD documentation (`make docs`) and confirm the build is
     clean. Failures caused by undocumented or malformed `!!` comments go back
-    to `implementer` (then rebuild and retest, steps 3, 5, 6); content
+    to `implementer` (then rebuild and retest, steps 4, 6, 7); content
     problems go back to `documenter`.
-11. **Commit** — Tell `git-manager` to stage and commit all changes on the
+12. **Commit** — Tell `git-manager` to stage and commit all changes on the
     feature branch with a message referencing the version.
-12. Report completion, the branch name and the version to the human.
+13. **Track commit** — Tell `feature-manager` to run `update` on the feature
+    file with a 1-2 sentence summary of what the feature delivered, plus the
+    commit hash, branch and version reported by `git-manager`. The feature
+    stays `ongoing` until merged.
+14. Report completion, the branch name and the version to the human.
 
 ## Merge flow
 
-Only when the human explicitly says to merge: tell `git-manager` to merge the
-feature branch into `main` and push. Never merge on your own initiative.
+Only when the human explicitly says to merge:
+
+1. Tell `git-manager` to merge the feature branch into `main` with
+   `--no-ff` and then delete the now-merged branch (both on that explicit
+   instruction), reporting the full merge commit hash.
+2. Tell `feature-manager` to run `finish` on the feature file with that merge
+   hash: status `finished`, `Merge commit` recorded, file moved to
+   `features/finished/`.
+3. Tell `git-manager` to commit the resulting `features/` bookkeeping change
+   on `main` (message as suggested by `feature-manager`) and push.
+
+Never merge on your own initiative.
 
 ## Rules
 

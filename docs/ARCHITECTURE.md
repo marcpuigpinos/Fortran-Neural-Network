@@ -9,8 +9,9 @@ changes and [`AGENTS.md`](../AGENTS.md) for the authoritative style rules.
 
 ## Overview
 
-As of version **0.0.1** the library consists of a single entry-point module.
-The overall repository layout (per `AGENTS.md`) is:
+As of version **0.0.2** the library consists of a single entry-point module,
+augmented by a small version module (`mVersion`) that the build generates
+from the `VERSION` file. The overall repository layout (per `AGENTS.md`) is:
 
 ```
 src/        Fortran library sources (one module per file)
@@ -41,16 +42,23 @@ for the exports listed below.
 | `get_version()` | `pure function` | `character(len=:), allocatable` | Returns the current library version string. |
 
 `get_version` is a pure function; aside from allocating the result it has no
-side effects and performs no I/O. At release `0.0.1` it returns `"0.0.1"`.
+side effects and performs no I/O. The returned value is **build-generated**,
+not a hand-maintained literal: the `Makefile` derives it from the `VERSION`
+file at the repo root (see Build-system notes below).
 
-#### Internal state
+#### Version source (`mVersion`)
 
-| Symbol | Kind | Value | Description |
+`mFortranNeuralNetwork` itself holds no version literal; `get_version` simply
+returns the `library_version` parameter `USE`d from the generated `mVersion`
+module (`build/generated/mVersion.f90`), which the `Makefile` recreates
+whenever `VERSION` changes:
+
+| Symbol | Kind | Origin | Description |
 |---|---|---|---|
-| `library_version` | `private` named constant, `character(len=*)` | `"0.0.1"` | Single source of truth for the version string inside the library; kept in sync with the `VERSION` file. |
+| `mVersion::library_version` | `public` named constant, `character(len=*)` | Generated at build time from `VERSION` into `build/generated/mVersion.f90` (git-ignored, never edited by hand) | Single source of truth for the library version string. |
 
-The private constant exists so callers depend on a runtime query rather than
-a hard-coded literal.
+Callers still depend on a runtime query rather than a hard-coded literal; the
+constant merely moved from a hand-edited source to a build-generated one.
 
 #### Example
 
@@ -79,9 +87,26 @@ and is discovered and run by `make test`.
 
 | Test | Covers |
 |---|---|
-| `tests/testVersion.f90` | `get_version()` returns `"0.0.1"` with the expected length. |
+| `tests/testVersion.f90` | `get_version()` equals the `VERSION` file contents (read from disk and trimmed at runtime; the working directory is the repo root under `make test`) and has the same length. |
 
 ## Build-system notes
+
+### Version generation
+
+`VERSION` is the single source of truth for the version string; every other
+copy is derived by the build:
+
+- **Library:** `VERSION` → `build/generated/mVersion.f90` (module `mVersion`
+  exposing the `library_version` parameter) → `get_version()`. The generated
+  file lives in git-ignored `build/` and is regenerated whenever `VERSION`
+  changes; the `Makefile` aborts with a parse-time `$(error ...)` if
+  `VERSION` is missing or empty.
+- **Documentation:** `VERSION` → `ford.md.in` (template whose `version:` key
+  holds the `@NN_VERSION@` placeholder) → `build/ford.md` → `build/docs/`
+  (`make docs` substitutes the version and runs FORD; template paths are
+  relative to `build/`, where the rendered config lives).
+
+### Host toolchain adaptations
 
 Two host-specific adaptations are recorded in `CHANGELOG.md` (`0.0.0`) and
 should be preserved unless the underlying tooling changes:

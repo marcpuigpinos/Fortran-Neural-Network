@@ -7,6 +7,41 @@ Changelog](https://keepachangelog.com/) format, following [semantic
 versioning](https://semver.org/). The current release is also recorded in the
 `VERSION` file at the repository root. Entries are listed newest first.
 
+## [0.0.2] - 2026-10-18
+
+### Changed
+
+- **Version single source of truth (build-derived).** The version string was
+  previously hand-maintained in four places — `VERSION`, the `library_version`
+  constant in `src/fortranNeuralNetwork.f90`, `expected_version` in
+  `tests/testVersion.f90` and `version:` in `ford.md` — and could desync. It is
+  now derived from `VERSION` alone at build time (pure Fortran 2008, no C
+  preprocessor):
+  - The `Makefile` reads `VERSION` into `VERSION_TEXT` (with a parse-time
+    `$(error ...)` guard when the file is missing or empty) and generates
+    `build/generated/mVersion.f90`, defining module `mVersion` with
+    `public :: library_version` as a character parameter. The generated file
+    lives in git-ignored `build/` and is regenerated whenever `VERSION`
+    changes.
+  - `src/fortranNeuralNetwork.f90` no longer holds a version literal; it
+    `use`s `mVersion, only: library_version` and `get_version()` returns it.
+    The library public API (`get_version`) is unchanged.
+  - `tests/testVersion.f90` no longer hard-codes the expected version: it
+    reads the `VERSION` file at runtime (the working directory is the repo
+    root under `make test`), trims it, and asserts `get_version()` equals it
+    with equal length; the `PASS`/`FAIL`/`error stop` convention is preserved.
+  - `ford.md` was replaced by the template `ford.md.in`, whose `version:` key
+    holds a `@NN_VERSION@` placeholder; `make docs` substitutes `VERSION_TEXT`
+    into `build/ford.md` (template paths are relative to `build/`: `src_dir
+    ../src`, `output_dir ../build/docs`, `exclude_dir ../tests ../build`) and
+    runs FORD on it.
+
+### Notes
+
+- The version literal now exists only in `VERSION`; `get_version()`, the
+  generated `mVersion` module and the rendered FORD documentation all derive
+  `0.0.2` from it, and editing `VERSION` alone propagates everywhere.
+
 ## [0.0.1] - 2026-10-18
 
 ### Changed

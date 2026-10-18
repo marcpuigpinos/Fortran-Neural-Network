@@ -28,9 +28,11 @@ Documentation is generated with **FORD**.
    HTML API documentation from the `!!` doc comments into `build/docs/`. This
    is the final build task before the git-manager commits, and runs after the
    version and the source docs have been finalized.
-   - You own the FORD configuration file (e.g. `ford.md` / `ford.lua` at the
-     repo root) and the `docs` Makefile target. Keep `output_dir` pointed at
-     `build/docs/` so generated HTML is never committed.
+   - You own the FORD configuration template `ford.md.in` at the repo root
+     (the hand-maintained source of truth) and the `docs` Makefile target;
+     `make docs` renders it into `build/ford.md`, substituting the version
+     from the VERSION file. Keep `output_dir` pointed at `build/docs/` so
+     generated HTML is never committed.
    - The docs build is clean only if FORD exits with status 0 and produces
      `build/docs/index.html`. Report FORD's warnings about undocumented public
      entities or bad `!!` syntax so the orchestrator can route them to the
@@ -44,9 +46,10 @@ Documentation is generated with **FORD**.
 
 ## Constraints
 
-- ONLY create/modify the `Makefile` and the FORD configuration file (and build
-  scripts if the project grows them). Never touch `src/`, `tests/`, the prose
-  docs under `docs/`, or run git commands (except read-only ones for context).
+- ONLY create/modify the `Makefile` and the FORD configuration template
+  `ford.md.in` (and build scripts if the project grows them). Never touch
+  `src/`, `tests/`, the prose docs under `docs/`, or run git commands (except
+  read-only ones for context).
 - Do NOT "fix" source code to make it compile — report the exact compiler
   errors to the orchestrator instead. Likewise do NOT edit `!!` doc comments
   yourself; report undocumented/malformed FORD entities instead.

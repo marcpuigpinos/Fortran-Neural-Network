@@ -20,6 +20,11 @@ the file, using the comment syntax of its type:
 - Makefiles, shell scripts and config files (including dotfiles such as
   `.gitignore`): `# AI Generated` as the first line.
 
+Exception: in markdown-based FORD configuration files (e.g. the `ford.md.in`
+template), the `> **AI Generated**` marker is the first body line *after*
+FORD's leading `key: value` meta block, as FORD's Markdown "meta" parser only
+reads leading key/value lines.
+
 The marker is permanent: the reviewer flags any new or modified file missing
 it as an ERROR.
 

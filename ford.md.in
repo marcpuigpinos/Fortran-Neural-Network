@@ -1,0 +1,28 @@
+project: Fortran Neural Network
+summary: Neural network library implemented in modern Fortran.
+version: @NN_VERSION@
+author: Fortran-Neural-Network project
+license: MIT
+src_dir: ../src
+output_dir: ../build/docs
+exclude_dir: ../tests ../build
+extensions: f90
+graph: true
+search: true
+
+> **AI Generated**
+>
+> FORD configuration template for the Fortran Neural Network library.
+> `make docs` substitutes the version placeholder on the `version:` key
+> above with the contents of the VERSION file at the repo root, writes the
+> result to `build/ford.md`, and runs FORD on it. Output is written to
+> `build/docs/` (never committed).
+>
+> Note: FORD parses the `key: value` block above with the Markdown "meta"
+> extension, which only reads leading key/value lines; `#` comment lines
+> are not supported in this block, hence this file carries the mandatory
+> AI-generated marker as the first body line instead.
+>
+> Note: the paths above (`src_dir`, `output_dir`, `exclude_dir`) are
+> relative to `build/`, because the rendered configuration lives in
+> `build/ford.md`.

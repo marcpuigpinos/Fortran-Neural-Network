@@ -397,7 +397,283 @@ for each training epoch:
 The loop is literally "forward → backward → update", repeated until the loss
 stops improving.
 
-## 4. References
+## 4. Optimizers
+
+The training loop of §3 closes on a fourth box that the previous sections label
+but never open. Backpropagation (§3.3) computes the gradients
+$\partial L / \partial W^{(l)}$ and $\partial L / \partial b^{(l)}$ of the loss
+with respect to every parameter; it is entirely **silent on how to use them**.
+The same gradients can be turned into parameter changes in many different ways,
+and the choice matters enormously for how fast — or whether — training makes
+progress. That choice is the subject of an **optimizer**.
+
+### 4.1 The optimizer as a strategy
+
+Formally, an optimizer is a *policy* that maps the current parameters, their
+gradients, a set of hyperparameters, and (optionally) some internal state to a
+parameter update. The simplest possible policy is plain **gradient descent**,
+which consumes the gradient directly:
+
+$$
+\theta \leftarrow \theta - \eta\, \nabla L
+$$
+
+A *stateful* method carries additional per-parameter quantities (running
+averages, accumulators) between steps and uses them to reshape the raw gradient
+into a more effective step $G$:
+
+$$
+\theta \leftarrow \theta - \eta\, G\!\left(\nabla L,\ \theta,\ \text{state}\right)
+\qquad
+\text{state} \leftarrow H\!\left(\nabla L,\ \text{state}\right)
+$$
+
+where $H$ is the state-transition that accumulates information across iterations
+(§4.6 sketches the concrete instance). The plain rule is the special case
+$G = \nabla L$ with empty state.
+
+This is exactly the **strategy pattern** the library encodes with its abstract
+`Optimizer` type and a deferred `update` binding: backpropagation produces
+gradients and the optimizer decides what to do with them, so the update is kept
+as a *separate pass* from the backward recurrence. Keeping them decoupled means
+a new strategy (momentum, Adam, ...) can drop in by implementing the same
+`update` interface, without touching the backpropagation code at all. The
+shipped counterpart is the `mOptimizers` module with its concrete
+`GradientDescent` type — the realised form of the plain rule above — and the
+relevant design rationale is recorded in
+[`memory/API_DESIGN.md`](memory/API_DESIGN.md) §3.
+
+```mermaid
+graph LR
+    G["∇L from backprop<br/>(direction, fixed)"] --> O["Optimizer<br/>strategy + state"]
+    O --> P["parameters θ<br/>(weights & biases)"]
+    P -.->|next forward/backward| G
+```
+
+The gradient fixes *which way is downhill at this instant*; the optimizer fixes
+*how far and in what modified direction to walk*, and may remember past steps to
+inform future ones.
+
+### 4.2 Gradient descent from first principles
+
+Why is $\theta \leftarrow \theta - \eta\, \nabla L$ the natural default? Because
+it is the *best local* choice one can make from first-order information alone.
+Take any proposed perturbation $\Delta\theta$ to the parameter vector. The
+**first-order Taylor expansion** of the loss about $\theta$ is
+
+$$
+L(\theta + \Delta\theta) \approx L(\theta) + \nabla L(\theta)^{\top} \Delta\theta
+$$
+
+The change in loss is therefore (to first order) the inner product
+$\nabla L^{\top} \Delta\theta$. If we only trust this linear model within a small
+trust region $\lVert \Delta\theta \rVert \le \epsilon$, the task is to *minimise*
+that inner product subject to the norm bound. By the **Cauchy–Schwarz
+inequality**,
+
+$$
+\bigl\lvert \nabla L^{\top} \Delta\theta \bigr\rvert \le \lVert \nabla L \rVert\, \lVert \Delta\theta \rVert
+$$
+
+with equality exactly when $\Delta\theta$ is parallel to $\nabla L$. To make the
+product as *negative* (i.e. the loss as small) as possible we choose the opposite
+direction at full budget:
+
+$$
+\Delta\theta^{\ast} = -\,\epsilon\, \frac{\nabla L}{\lVert \nabla L \rVert}
+$$
+
+This is the **method of steepest descent**: to first order, no other unit step
+inside the trust region lowers the loss more. The step length $\epsilon$ only
+scales the move, so it is absorbed into a single reusable hyperparameter
+$\eta$ — the **learning rate** — yielding the familiar
+
+$$
+\theta \leftarrow \theta - \eta\, \nabla L
+$$
+
+**Interpretation.** $\nabla L$ points in the locally *steepest-ascent*
+direction; negating it gives the locally steepest-*descent* direction, and
+gradient descent is literally "descend the gradient". The decomposition into a
+*direction* (the fixed $-\nabla L$) and a *magnitude* ($\eta$ plus whatever the
+strategy multiplies in, §4.1) is what every later optimizer refines.
+
+### 4.3 Step size and convergence
+
+The learning rate is not merely a knob for speed: it has a hard ceiling beyond
+which descent *fails to converge*. Suppose the loss is $L$-**smooth**, meaning
+its gradient is Lipschitz-continuous with constant $L$ (informally, the
+curvature never exceeds $L$). On such functions, gradient descent converges to
+a stationary point provided
+
+$$
+\eta < \frac{2}{L}
+$$
+
+and the decrease is guaranteed **monotone** once the stricter bound holds:
+
+$$
+\eta \le \frac{1}{L}
+$$
+
+The cleanest illustration is a one-dimensional quadratic
+$f(x) = \tfrac{1}{2} a x^2$, whose gradient is $f'(x) = a x$ and whose curvature
+is the constant $a$ (here $L = a$). Gradient descent gives the linear recursion
+
+$$
+x_{k+1} = x_k - \eta\, a\, x_k = (1 - \eta a)\, x_k
+$$
+
+so $x_k = (1 - \eta a)^k x_0$, which tends to the minimiser $x = 0$ if and only
+if
+
+$$
+\lvert 1 - \eta a \rvert < 1
+\qquad\Longleftrightarrow\qquad
+0 < \eta a < 2
+\qquad\Longleftrightarrow\qquad
+\eta < \frac{2}{a} = \frac{2}{L}
+$$
+
+- If $\eta < 1/L$, then $0 < 1 - \eta a < 1$: the iterates shrink toward zero
+  **monotonically**, no overshoot.
+- If $1/L < \eta < 2/L$, then $-1 < 1 - \eta a < 0$: successive steps land on
+  alternating sides of the minimum — **damped oscillation** that still converges.
+- If $\eta = 2/L$, then $1 - \eta a = -1$: a **permanent oscillation** between
+  two symmetric points, no progress.
+- If $\eta > 2/L$, then $\lvert 1 - \eta a \rvert > 1$: the iterates grow and the
+  method **diverges**.
+
+This single scalar model explains the global rules above and underlies the
+convergence checks in the project's optimizer tests: a run that is expected to
+decrease the loss monotonically is implicitly exercising a step within the
+$\eta \le 1/L$ regime.
+
+### 4.4 Conditioning, elongated valleys, and why plain GD zig-zags
+
+Real loss surfaces are not circular quadratics, and the **conditioning** of the
+(second-order) geometry dominates plain GD's behaviour. Where the curvature is
+well-approximated by a Hessian $H$, the loss looks local like a quadratic whose
+level sets are ellipsoids stretched along the eigenvectors of $H$. The
+**condition number** $\kappa = \lambda_{\max} / \lambda_{\min}$ (the ratio of
+largest to smallest curvature eigenvalue) measures how elongated those ellipses
+are.
+
+In an elongated valley, the gradient is dominated by the *steep* cross-valley
+direction, so the step $\theta - \eta \nabla L$ mostly oscillates back and forth
+across the narrow dimension while barely advancing along the shallow one. To stay
+stable across the steep direction, $\eta$ must respect the *largest* curvature
+($\eta < 2 / \lambda_{\max}$), which simultaneously makes progress along the
+*smallest* curvature crawling. The result is the characteristic **zig-zag** path
+of gradient descent, inefficient whenever $\kappa \gg 1$. Stateful optimizers
+(§4.1, §4.6) are designed precisely to damp the cross-valley oscillation and
+accelerate the slow direction.
+
+This is a *geometric* difficulty layered on top of the *global* non-convexity
+already described in §3.2 (local minima and saddle points): conditioning
+concerns how awkward the descent is *near* a stationary point, whereas
+non-convexity concerns *which* stationary point one lands in. The two are
+independent and both motivate better update rules.
+
+### 4.5 Batch, stochastic, and mini-batch gradient descent
+
+The gradient $\nabla L$ is an average over the training set
+$L = \frac{1}{N}\sum_j L_j$, so the gradient inherits the same average:
+$\nabla L = \frac{1}{N}\sum_j \nabla L_j$.
+How many of those per-example gradients enter each update defines the variants
+already tabulated in **§3.2** (batch, stochastic, mini-batch); the table there
+is authoritative and is not restated here. What matters for the present
+discussion is the statistical relationship between a minibatch gradient and the
+true one.
+
+For a mini-batch $B$ drawn (uniformly, with or without replacement) from the
+training set, the batch gradient is
+
+$$
+\nabla L_B = \frac{1}{\lvert B \rvert} \sum_{j \in B} \nabla L_j
+$$
+
+Crucially it is an **unbiased estimator** of the full gradient:
+
+$$
+\mathbb{E}\!\left[\, \nabla L_B \,\right] = \nabla L
+$$
+
+In expectation, a noisy mini-batch step points in the same direction as the
+(expensive) full-batch step — but with variance that shrinks as $\lvert B \rvert$
+grows. This single fact reconciles the two extremes: a **batch** update ($B$ = all
+data, $\nabla L_B = \nabla L$) is noise-free yet costs a full pass each step,
+while a **stochastic** update ($\lvert B \rvert = 1$) is cheap and unbiased but
+very noisy; **mini-batch** sits between, trading a little bias-free signal for a
+large gain in throughput and vectorisation. Note that every variant runs the
+*same* optimizer rule (the plain $\theta \leftarrow \theta - \eta\, G$ with
+$G = \nabla L_B$); batching is a choice about the *input* to the optimizer, not a
+different optimizer — which is why the library's `GradientDescent` strategy is
+deliberately batch-agnostic.
+
+### 4.6 The optimizer abstraction in pseudocode
+
+The decoupling of §4.1 lets us rewrite the update step (§3.4, step 4) as a call
+into an interchangeable component. Full-batch training with plain gradient
+descent is then just an outer loop around a stateless update:
+
+```text
+# Outer loop: plain (full-batch) gradient descent
+for each training epoch:
+    # forward + backward over the whole set (steps 1-3 of §3.4)
+    for l = 1 .. L:
+        dW^(l), db^(l) = backprop(whole dataset)   # gradients, no state
+
+    # 4. Update — delegates entirely to the optimizer
+    for l = 1 .. L:
+        W^(l), b^(l) = update(W^(l), b^(l), dW^(l), db^(l))
+```
+
+Stateless gradient descent is the concrete `update`:
+
+```text
+function gd_update(W, b, dW, db, eta):
+    # No internal state: a direct map from gradient to step.
+    W = W - eta * dW
+    b = b - eta * db
+    return W, b
+```
+
+A *stateful* strategy keeps per-parameter data across calls. Momentum, the
+canonical example, maintains a velocity and uses a smoothed gradient. This
+sketch only **motivates the state slot** in the abstraction — momentum and Adam
+are deliberately deferred in this project and are not implemented:
+
+```text
+# stateful slot: optimizer carries a velocity v (initialised to zero)
+function momentum_update(W, b, dW, db, v, eta, beta):
+    v_W = beta * v.W  + (1 - beta) * dW    # accumulate velocity
+    v_b = beta * v.b  + (1 - beta) * db
+    W   = W - eta * v_W                     # step along smoothed direction
+    b   = b - eta * v_b
+    return W, b, { v.W = v_W, v.b = v_b }   # state carried to the next call
+```
+
+The state transition $H(\nabla L, \text{state})$ of §4.1 is the line
+`v = beta * v + (1 - beta) * grad`: it is the *only* thing separating a stateful
+method from plain GD, which is exactly what an abstract `Optimizer` must allow a
+derivative to hold.
+
+| Property | Plain GD | Stateful optimizer (e.g. momentum) |
+|---|---|---|
+| Internal state | none | per-parameter buffer(s) (velocity, ...) |
+| Extra memory | $O(0)$ beyond params | $O(\text{params})$ per moment kept |
+| Update from | raw gradient only | gradient **and** accumulated state |
+| Deterministic given gradients | yes | yes (adds nothing stochastic) |
+| Deterministic given data order | mini-batch sampling shuffles it | also depends on state history |
+
+The table sharpens the design lesson of this section: gradient descent is the
+*founding* strategy where the update is a pure function of the current gradient,
+while stateful optimizers extend that pure function with a hidden history. Both
+sit behind the same `update` seam so the backpropagation machinery of §3 never
+needs to know which one is in play.
+
+## 5. References
 
 Wikipedia:
 

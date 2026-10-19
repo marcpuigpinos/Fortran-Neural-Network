@@ -57,7 +57,12 @@ maintain the metadata header and the `## Progress` section only.
      `- YYYY-MM-DD: merged into main (<full merge hash>); branch deleted.`;
   2. set `Status: finished` and `Merge commit: <full merge hash>`;
   3. move the file to `features/finished/` (create the directory if needed).
-  Use plain file tools or `mv` for the move — the commit stays with
+  The finished feature must then exist ONLY at `features/finished/<name>.md`:
+  perform the move with `mv` (never copy), and afterwards verify the original
+  `features/<name>.md` no longer exists (e.g. `ls features/` — re-list the
+  directory or `git status`, both allowed). A leftover copy at the old path
+  would be committed as a duplicate of the finished file, so the move is not
+  complete until the old path is gone. Do not commit — the commit stays with
   `git-manager`. Fail if the status is not `ongoing`.
 
 ## Git usage (read-only verification)
@@ -83,6 +88,8 @@ maintain the metadata header and the `## Progress` section only.
 - Status: OK / FAILED / BLOCKED (+ reason).
 - Feature file path (final path after `finish`) and the metadata header as
   written.
+- For `finish`: explicit confirmation that no copy remains at
+  `features/<name>.md` (the file exists only under `features/finished/`).
 - The exact `## Progress` entries appended.
 - For `finish`: the suggested message for the bookkeeping commit, e.g.
   `feature: finalize <short-name> (merge <hash>)`.

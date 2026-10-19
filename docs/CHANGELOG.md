@@ -7,6 +7,56 @@ Changelog](https://keepachangelog.com/) format, following [semantic
 versioning](https://semver.org/). The current release is also recorded in the
 `VERSION` file at the repository root. Entries are listed newest first.
 
+## [0.1.0] - 2026-10-19
+
+### Added
+
+- **Internal optimizer module `mOptimizers`** (`src/optimizers.f90`), the
+  first piece of the architecture planned in
+  [`memory/API_DESIGN.md`](memory/API_DESIGN.md) (sections 3, 4, 5, 6, 10) to
+  land. It follows the "separate update pass" pattern prescribed by the
+  neural-network implementation skill: forward and backward passes stay pure
+  and only the optimizer mutates parameters. Exports:
+
+  - `Optimizer` — abstract base type for parameter-update strategies with a
+    single deferred binding `update(self, weights, bias, d_weights, d_bias,
+    learning_rate)`. The base is an opaque, stateless strategy (no
+    constructor needed); stateful optimizers extend it with their own
+    components.
+  - `GradientDescent` — first concrete extension, implementing the plain
+    in-place step `W = W - lr*dW`, `b = b - lr*db` over a single layer's
+    weight matrix `W(n_out, n_in)` and bias vector `b(n_out)`. Given
+    whole-training-set gradients this is full-batch gradient descent; given
+    mini-batch gradients it is SGD — the optimizer is agnostic to how the
+    gradients were formed.
+
+  The module depends only on `iso_fortran_env` (`real64`) and is
+  deliberately **not yet re-exported** through `mFortranNeuralNetwork`: no
+  `Network` type exists yet, so `mOptimizers` is consumed directly by tests
+  today and will be wired into the umbrella module when the network layer
+  arrives.
+
+- **Four test programs** for `mOptimizers` (all passing; debug and release
+  builds warning-free):
+
+  | Test | Covers |
+  |---|---|
+  | `tests/testOptimizersStep.f90` | Exact single-step arithmetic (`W - lr*dW`, `b - lr*db`) against independently computed expectations, and that `update` never writes through the `intent(in)` gradient arrays. |
+  | `tests/testOptimizersZeroLr.f90` | `learning_rate = 0` is a no-op: weights and biases are left bit-identical. |
+  | `tests/testOptimizersConvergence.f90` | Repeated steps minimise a quadratic and converge to its known analytic minimum. |
+  | `tests/testOptimizersDispatch.f90` | Virtual dispatch: a `class(Optimizer)` polymorphic variable calls the `GradientDescent` implementation. |
+
+### Notes
+
+- **`GradientDescent`, not `SGD`.** `API_DESIGN.md` originally named the v1
+  optimizer `SGD`; per the human's feature note (`features/20261018_01_optimizer-gd.md`)
+  the concrete type is named `GradientDescent`, since the strategy itself is
+  batch-agnostic (see above). Momentum and Adam remain deferred per
+  `API_DESIGN.md` section 11 and are **not** implemented.
+- The library version moves `0.0.2 → 0.1.0` (new functionality,
+  backward-compatible); `get_version()` and the generated `mVersion` module
+  derive `0.1.0` from `VERSION` automatically (no source changes needed).
+
 ## [0.0.2] - 2026-10-18
 
 ### Changed

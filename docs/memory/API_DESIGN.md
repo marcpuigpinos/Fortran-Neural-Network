@@ -4,333 +4,449 @@
 
 > **Pre-implementation design record.** This document captures an agreed
 > architectural direction for the public API of the library. It targets no
-> specific released version yet (`VERSION` is unchanged); the implementation it
-> describes will land in a later feature cycle.
+> specific released version yet (`VERSION` is unchanged at 0.0.2); the
+> implementation it describes will land in a later feature cycle.
 
 This file records the architectural direction we agreed for the dense
-(fully-connected) MLP library, derived from a design conversation between the
-human and the orchestrator on **2026-10-18**. It is intentionally self-contained
-so it can be re-attached as context in future sessions: when work resumes, hand
-this document to the orchestrator as the source of truth and pick up from the
-decisions recorded here, rather than re-deriving them from scratch.
+(fully-connected) MLP library. It was **revised on 2026-10-19** from the design
+conversation of **2026-10-18**; the revision **replaces** the earlier draft's
+public-facing design and is now the source of truth. It is intentionally
+self-contained so it can be re-attached as context in future sessions: when work
+resumes, hand this document to the orchestrator as the source of truth and pick
+up from the decisions recorded here, rather than re-deriving them from scratch.
+
+**Why the direction changed.** The original draft was built around a flat
+procedural `bind(C, name="fnn_*")` façade with opaque integer handles, chosen
+to serve a C-ABI boundary reached from Python through `ctypes`. The human
+rejected this: a C façade compromises the Fortran API (no derived types, no
+type-bound procedures, explicit-shape arrays, NUL-terminated buffers) and
+forces `ctypes` when `f2py`/`numpy.f2py` lets Python talk to Fortran natively
+and cleanly. The new direction is a **modern object-oriented Fortran public
+API** — a derived type is the public surface — designed so it is both (a)
+idiomatic to call from Fortran and (b) wrappable by `f2py` for Python. All
+`bind(C)`/`fnn_`/opaque-handle/`ctypes`/NUL-buffer material from the earlier
+draft is dropped; where a concern (error signalling, dispatch kinds, Python
+interop) survives, it is restated below in the new idiom. Throughout, the
+working precision is `real64` (equivalent to `real(c_double)`), used as the v1
+floating-point kind.
 
 The mathematical foundations behind these shapes — losses, backpropagation,
 activations, and the training loop — are **not** restated here; they live in
 [`../NEURAL_NETWORK_THEORY.md`](../NEURAL_NETWORK_THEORY.md). The current,
 already-implemented layout lives in [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
-Style, FFI, and build conventions are governed by
+Style, interop, and build conventions are governed by
 [`../../AGENTS.md`](../../AGENTS.md). Implementation-side checklists and
 correctness pairings (activation `fn`/`deriv`, loss/gradient, the paired-record
 rule, gradient checking) are in
 [`../../.github/skills/neural-networks/SKILL.md`](../../.github/skills/neural-networks/SKILL.md).
+Language and `f2py`/interop notes are in
+[`../../.github/skills/fortran/references/language.md`](../../.github/skills/fortran/references/language.md)
+and
+[`../../.github/skills/fortran/references/debugging.md`](../../.github/skills/fortran/references/debugging.md).
 
 ## 1. Scope
 
-What is being designed here is the **public API surface** of
-`mFortranNeuralNetwork` (declared in `src/fortranNeuralNetwork.f90`) for a
-dense, fully-connected feedforward (MLP) library, covering three concerns:
+What is being designed here is the **public API surface** of a dense,
+fully-connected feedforward (MLP) library, covering three concerns:
 
 - **Forward inference** through a stack of layers,
 - **Training**, with plain SGD as the first (and only v1) optimizer,
 - **Persistence** — saving and loading a configured/trained network.
 
-Today the library is a thin shell: `mFortranNeuralNetwork` exposes only
+The public surface is the `Network` derived type, reached through the single
+module a consumer `USE`s: `mFortranNeuralNetwork`, declared in
+`src/fortranNeuralNetwork.f90`. Today that module is a thin shell exposing only
 `get_version()` (see [`../ARCHITECTURE.md`](../ARCHITECTURE.md)). This design
-extends it into a real network library without breaking the existing
-entry-point contract.
+extends it into a real network library — adding the `Network` type and its
+supporting constants — without breaking the existing entry-point contract or
+`get_version()`.
 
-## 2. Two-surface architecture
+## 2. Public surface: a derived-type (OOP) API, no procedural façade
 
-The framing principle — mandatory, and the lens for every later decision — is
-**rich polymorphic OOP inside, a flat procedural `bind(C)` façade outside**.
-This is the pattern used by high-quality numeric libraries where the boundary
-must be a stable C ABI while the interior stays idiomatic: BLAS/LAPACK, and the
-libtorch C API in particular. The interior is a class hierarchy; the boundary
-knows nothing about classes.
+The framing principle is **rich polymorphic OOP inside, a single derived type
+(`Network`) as the public surface**. The interior keeps the abstract-base +
+concrete-derivative hierarchy (Activations / Losses / Optimizers) exactly as
+before; what changes is the exterior — it is **not** a procedural C-style
+façade. State belongs to the object; there is no module-level registry and no
+opaque handle. A consumer constructs a `type(Network)` variable and calls
+type-bound procedures on it:
 
+```fortran
+type(Network) :: net
+integer :: ierr
+call net%initialize(optimizer = OPT_SGD, ierr = ierr)
+call net%add_layer(LAYER_DENSE, 16, ACT_TANH,    seed = 1, ierr = ierr)
+call net%add_layer(LAYER_OUTPUT, 1,  ACT_SIGMOID, seed = 2, ierr = ierr)
+call net%train(x, y, epochs, learning_rate, LOSS_MSE, batch_size, final_loss, ierr)
+call net%predict(x1, yhat, ierr)
+call net%save("model.txt", ierr)
 ```
-mFortranNeuralNetwork (bind(C) procedural façade)  ← THE ONLY public surface
-        ▲
-        │ implemented with
-mNetwork / mLayer / mActivations / mLosses / mOptimizers   ← private types, abstract bases + concrete derivatives
-        ▲
-        │ uses (currently)
-intrinsic matmul + real64 + random_init/random_number (seedable)
-```
 
-The two rules that follow from this and that must not be violated:
+There is **no `fnn_` prefix anywhere** on public procedures — that prefix
+belonged to the C façade and is gone.
+
+The invariants that carry over from the old design, restated for the new shape:
 
 - `mFortranNeuralNetwork` is the **only** module a consumer ever `USE`s.
   Everything else is internal machinery reached through it.
-- All other modules and types are **`private`** to the library. There is no
-  `public :: Layer`-style export anywhere except what the façade itself
-  re-exports. Concrete types, abstract bases, and type-bound procedures never
-  cross the public boundary.
+- All concrete types, abstract bases, and the activation/loss/optimizer
+  hierarchy stay **`private`**, re-exported only as far as needed: the `Network`
+  type, the typed kind constants (§4.2), the factories used internally by
+  `add_layer`/`initialize`, and `get_version()`. Type-bound procedures belong to
+  `Network`; nothing else leaks a class or an abstract type across the boundary.
 
 ## 3. Module layout
 
-The `src/` modules planned for the implementation, and what each holds (agreed
-file names; all use the `.f90` free-form extension required by `AGENTS.md`):
+The `src/` modules planned for the implementation (agreed file names; all use
+the `.f90` free-form extension required by `AGENTS.md`):
 
 - **`src/fortranNeuralNetwork.f90`** → module `mFortranNeuralNetwork`: the
-  procedural `bind(C)` façade — the sole public entry point. This is the
-  existing file, which will be extended with the new API.
-- **`src/network.f90`** → module `mNetwork`: the `Network` type owning an
-  ordered collection of layers, plus the forward/backward and train driver.
+  umbrella module consumers `USE`. It `USE`s the internal modules and re-exports
+  the public `Network` type, the typed dispatch-kind constants (§4.2), the
+  error-code constants and `error_message`, and `get_version`. There is no
+  `bind(C)` here.
+- **`src/network.f90`** → module `mNetwork`: the public `Network` type owning an
+  ordered collection of layers, plus the type-bound `initialize`, `add_layer`,
+  `train`, `predict`, `save`, `load`, and `last_error` procedures, and the
+  forward/backward driver behind them.
 - **`src/layer.f90`** → module `mLayer`: the `Layer` type — weights
-  `W(n_out, n_in)`, biases `b(n_out)`, an activation, and an activation-kind
-  integer tagging which activation it uses.
+  `W(n_out, n_in)`, biases `b(n_out)`, and an activation.
 - **`src/activations.f90`** → module `mActivations`: an abstract `Activation`
   base with deferred `fn`/`deriv` bindings, and the concrete `Sigmoid`, `Tanh`,
-  `ReLU`, `Softmax`, and `Linear` types **in the same module**, private; a
-  single factory `new_activation(kind_code)` returns a
-  `class(Activation), allocatable`.
+  `ReLU`, `Softmax`, and `Linear` types **in the same module**, private; an
+  internal factory selects the right instance exactly once from an
+  `ActivationKind`.
 - **`src/losses.f90`** → module `mLosses`: the same parallel pattern as
   `mActivations`; concrete `MSE`, `BinaryCrossEntropy`, and
   `CategoricalCrossEntropy`.
 - **`src/optimizers.f90`** → module `mOptimizers`: an abstract `Optimizer` with
   a deferred `update` binding; concrete `SGD` for v1. Momentum and Adam are
   noted as future derivatives of the same base.
+  - **Implemented 2026-10-19 (v0.1.0):** `mOptimizers` landed with the abstract
+    `Optimizer` (deferred `update(self, weights, bias, d_weights, d_bias,
+    learning_rate)`) and a concrete type named **`GradientDescent`** rather
+    than `SGD`, per the human's note on `features/20261018_01_optimizer-gd.md`.
+    The strategy is batch-agnostic (full-batch GD for whole-set gradients, SGD
+    for mini-batch gradients), so the more precise name was chosen. The
+    `OPT_SGD` kind constant and the rest of this document's references to "SGD"
+    should be read as referring to this `GradientDescent` strategy. Momentum
+    and Adam remain deferred (§11). The module is currently internal-only and
+    not yet re-exported through `mFortranNeuralNetwork` (no `Network` type
+    yet).
 
 There are **no `include` / `*.fi` files** in this design — the human explicitly
-rejected that mechanism in favor of modern Fortran modules.
+rejected that mechanism in favor of modern Fortran modules. There is likewise
+deliberately **no `mPerceptron` module**: a `Layer` already bundles its neurons
+together with per-layer weights, biases, and the loss/gradient contribution, so
+a separate single-perceptron abstraction adds nothing the layer does not already
+provide.
 
-There is deliberately **no `mPerceptron` module**. A `Layer` already bundles its
-neurons together with per-layer weights, biases, and the loss/gradient
-contribution, so a separate single-perceptron abstraction adds nothing the
-layer does not already provide.
+## 4. Settled decisions
 
-## 4. The two settled decisions
-
-These two choices were nailed down first and shape everything else. Both are
+These choices were nailed down first and shape everything else. Both are
 recorded here so future sessions do not reopen them.
 
-### 4.1 Opaque integer handles, not a module singleton
+### 4.1 The derived type as the state carrier (replaces opaque handles)
 
-Public procedures take an `integer(c_int)` **handle** as their first argument.
-The library maintains an internal mapping handle → allocated `Network`
-instance, and `free_network(handle)` (publicly, `fnn_free_network`) releases
-it. Reasons, retained for future sessions:
+State and ownership live in the `Network` object. Multiple independent networks
+are simply multiple `type(Network)` instances; thread-safety comes from each
+thread owning its own `net` (see §8). The old draft reached the same end —
+no shared mutable state — by way of opaque integer handles into an internal
+registry; the new design reaches it more idiomatically, by making the object
+itself the handle, so the registry disappears entirely.
 
-- **Thread-safety.** Mutable module-level state is a data race when the
-  library is called concurrently; the FFI/OpenMP path (see Section 7) requires
-  us to avoid it.
-- **Multiple networks per process.** Handles let one process hold many
-  independent networks at once.
-- **Clean ownership semantics** that map cleanly onto `ctypes`/`c_void_p` and
-  pointer-style C handles at the boundary.
+The standing stance against a **module singleton** is retained but justified on
+new grounds: not C-ABI mapping, but **thread-safety** (mutable module-level
+state is a data race when the library is called concurrently) and
+**idiomatic-modern-Fortran ergonomics** (a caller already holding a `net` does
+not need a global store). Module-level mutable state remains forbidden.
 
-### 4.2 Integer kinds (named constants), not character strings, for dispatch fields
+On the Python side, `f2py` creates and owns the object; wrapping type-bound
+procedures so Python can hold and mutate it needs care, recorded honestly in
+§7.
 
-Every dispatch-flavored parameter at the public surface — `optimizer`,
-`activation`, `layer_type`, `loss` — is an `integer(c_int)` **named constant**
-(Fortran 2008 has no `enum`). They map directly to `ctypes.c_int`, to a C
-`enum`, and to plain integers from Python/numpy, and they sidestep the
-NUL-termination and length-handling hazards of passing Fortran `character`
-across the language boundary. Planned names:
+### 4.2 Typed integer-backed enum constants for dispatch fields — typed derived types, not bare integers
 
-```text
-LAYER_DENSE   LAYER_OUTPUT
-ACT_SIGMOID   ACT_TANH   ACT_RELU   ACT_SOFTMAX   ACT_LINEAR
-OPT_SGD       (later: OPT_MOMENTUM, OPT_ADAM)
-LOSS_MSE      LOSS_BINARY_CE   LOSS_CATEGORICAL_CE
-```
+Every dispatch-flavored field — `optimizer`, `activation`, `layer`, `loss` — is
+a **typed constant**, not a bare integer and not a string. The two-part
+rationale the human chose:
 
-Internally, an integer kind selects the right concrete instance exactly **once**
-— at `add_layer` / the relevant `new_*` factory. After construction, ordinary
-polymorphic type-bound procedures dispatch the work virtually; there is no
-later `select case` on the kind on the hot path.
+- A misspelled name (`OTP_SGD` for `OPT_SGD`) **fails to resolve at compile
+  time**, because there is no such named entity. A string literal would compile
+  happily and fail only at runtime — this compile-time-vs-runtime failure mode
+  was the deciding argument (compare §4.2 of the old string-vs-int reasoning,
+  now flipped in favor of typed constants).
+- Giving **each category its own derived type** prevents mixing families: with
+  bare integers for everything, `ACT_SIGMOID` could be passed into a `loss` slot
+  and compile. Separate types make that a type error.
 
-## 5. Public procedural façade (the `bind(C)` API)
-
-The planned public procedures and their C-interoperable signatures, in a
-`fortran` block below. These are **illustrative** — exact procedure names and
-dummy-argument order may be fine-tuned at implementation time; the shapes,
-types, and rules are the contract.
+So define one lightweight derived type per category, each wrapping a single
+integer code, with `UPPER_SNAKE` named constants:
 
 ```fortran
-integer(c_int) function fnn_new_network(optim, ierr) bind(C, name="fnn_new_network")
-    !! Create an empty network with the given optimizer. Returns an opaque handle.
-    integer(c_int), value :: optim   !! OPT_* kind code
-    integer(c_int), intent(out) :: ierr  !! 0 on success, non-zero on error
-
-subroutine fnn_free_network(handle) bind(C, name="fnn_free_network")
-    !! Release a network handle and all storage it owns.
-    integer(c_int), value :: handle  !! Handle from fnn_new_network / fnn_load_network
-
-integer(c_int) function fnn_add_layer(handle, layer_type, n_neurons, &
-                                      activation, seed, ierr) &
-                                      bind(C, name="fnn_add_layer")
-    integer(c_int), value :: handle       !! Target network
-    integer(c_int), value :: layer_type   !! LAYER_DENSE / LAYER_OUTPUT
-    integer(c_int), value :: n_neurons    !! Neuron count for this layer
-    integer(c_int), value :: activation   !! ACT_* kind code
-    integer(c_int), value :: seed         !! RNG seed for weight init
-    integer(c_int), intent(out) :: ierr   !! 0 on success
-
-integer(c_int) function fnn_train(handle, n_samples, n_in, n_out, &
-                                  X, Y, epochs, learning_rate, loss, &
-                                  batch_size, final_loss, ierr) &
-                                  bind(C, name="fnn_train")
-    integer(c_int), value :: handle
-    integer(c_int), value :: n_samples  !! Number of training examples
-    integer(c_int), value :: n_in       !! Input width
-    integer(c_int), value :: n_out      !! Output width
-    real(c_double), intent(in) :: X(n_in, n_samples)   !! Inputs, column-major
-    real(c_double), intent(in) :: Y(n_out, n_samples)  !! Targets, column-major
-    integer(c_int), value :: epochs
-    real(c_double), value :: learning_rate
-    integer(c_int), value :: loss        !! LOSS_* kind code
-    integer(c_int), value :: batch_size  !! 0 => full-batch
-    real(c_double), intent(out) :: final_loss
-    integer(c_int), intent(out) :: ierr
-
-integer(c_int) function fnn_predict(handle, n_in, n_out, x, y, ierr) &
-                                     bind(C, name="fnn_predict")
-    !! Single-example forward pass (for now).
-    integer(c_int), value :: handle
-    integer(c_int), value :: n_in, n_out
-    real(c_double), intent(in) :: x(n_in)
-    real(c_double), intent(out) :: y(n_out)
-    integer(c_int), intent(out) :: ierr
-
-integer(c_int) function fnn_save_network(handle, filename, ierr) &
-                                        bind(C, name="fnn_save_network")
-    integer(c_int), value :: handle
-    character(kind=c_char, len=*), intent(in) :: filename
-    integer(c_int), intent(out) :: ierr
-
-integer(c_int) function fnn_load_network(filename, ierr) &
-                                       bind(C, name="fnn_load_network")
-    !! Read a persisted network, returning a valid handle.
-    character(kind=c_char, len=*), intent(in) :: filename
-    integer(c_int), intent(out) :: ierr
-
-subroutine fnn_last_error(buffer, buffer_len) bind(C, name="fnn_last_error")
-    !! Copy the human-readable message for the last non-zero ierr into a
-    !! caller-supplied NUL-terminated buffer.
-    character(kind=c_char), intent(out) :: buffer(*)
-    integer(c_int), value :: buffer_len
-
-subroutine fnn_version(buffer, buffer_len) bind(C, name="fnn_version")
-    !! NUL-terminated library version string from the build-generated mVersion.
-    character(kind=c_char), intent(out) :: buffer(*)
-    integer(c_int), value :: buffer_len
+type :: ActivationKind ; integer :: code ; end type ActivationKind
+type(ActivationKind), parameter :: ACT_SIGMOID = ActivationKind(1)
+type(ActivationKind), parameter :: ACT_TANH    = ActivationKind(2)
+type(ActivationKind), parameter :: ACT_RELU    = ActivationKind(3)
+type(ActivationKind), parameter :: ACT_SOFTMAX = ActivationKind(4)
+type(ActivationKind), parameter :: ACT_LINEAR  = ActivationKind(5)
 ```
 
-Note in `fnn_train` that `X(n_in, n_samples)` and `Y(n_out, n_samples)` are
-declared **explicit-shape**, not assumed-shape `(:)` — `bind(C)` forbids
-assumed-shape array arguments.
+and analogously `LayerKind` (`LAYER_DENSE`, `LAYER_OUTPUT`), `OptimizerKind`
+(`OPT_SGD`; later `MOMENTUM`, `ADAM`), and `LossKind` (`LOSS_MSE`,
+`LOSS_BINARY_CE`, `LOSS_CATEGORICAL_CE`). Codes start at **1**, with **0
+reserved as unset/invalid**.
 
-### Why a status code out, not `error stop`
+Internally, each kind selects the right concrete instance exactly **once** — at
+`add_layer` / `initialize` via the internal factory. After construction,
+ordinary polymorphic type-bound procedures dispatch the work virtually; there is
+no `select case` on the kind on the hot path.
 
-A fatal abort (`error stop`) inside the library would kill a hosting Python
-interpreter or panic a C host process. So **every** public procedure returns an
-`integer(c_int)`, `intent(out)` status code `ierr`, and the human-readable
-message for the last non-zero `ierr` is fetched **lazily** via
-`fnn_last_error`. This also keeps the I/O out of the library except through
-explicitly documented procedures, per the style rules in `AGENTS.md`.
+These typed kind constants are also what `f2py` re-exports as module
+`parameter`s, so a Python user can write `mod.ACT_TANH` rather than a magic
+number (§7). The names keep a documented **`UPPER_SNAKE` enum-like convention**,
+a deliberate exception to the `snake_case` procedure/variable rule in `AGENTS.md`
+— recorded explicitly so a future reviewer treats it as intentional rather than
+a style violation.
 
-The specific error conditions the human explicitly required to be reported:
+## 5. Public OOP API (illustrative type-bound signatures)
 
-- A network handle that does not correspond to a live internal `Network`
-  (missing/already-freed network).
-- A network with **no output layer** at `train`, `predict`, or `save` time.
+The planned public procedures, as type-bound procedures on `Network`, in a
+`fortran` block below. Names are exactly as the human wants them — **no
+`fnn_` prefix, no handles**. These are **illustrative**: the exact
+dummy-argument order may be fine-tuned at implementation time, but the shapes,
+types, and the absence of handles/`fnn_` are the contract.
 
-## 6. FFI design rules (Python & C/C++ compatibility)
+```fortran
+subroutine initialize(self, optimizer, ierr)
+    !! Construct an empty network with the given optimizer.
+    class(Network), intent(inout) :: self
+    type(OptimizerKind), intent(in) :: optimizer  !! OPT_* kind constant
+    integer, intent(out) :: ierr                  !! 0 on success, non-zero on error
 
-Hard rules that all future façade code must follow (from the `AGENTS.md`
-FFI/skill notes and this conversation):
+subroutine add_layer(self, layer, n_neurons, activation, seed, ierr)
+    !! Append a layer to the network.
+    class(Network), intent(inout) :: self
+    type(LayerKind), intent(in) :: layer           !! LAYER_DENSE / LAYER_OUTPUT
+    integer, intent(in) :: n_neurons               !! Neuron count for this layer
+    type(ActivationKind), intent(in) :: activation !! ACT_* kind constant
+    integer, intent(in) :: seed                    !! RNG seed for weight init
+    integer, intent(out) :: ierr
 
-- Public façade procedures use `bind(C, name="fnn_*")` — the symbol name is
-  pinned explicitly so callers can rely on it regardless of the Fortran
-  identifier.
-- Only C-interoperable types appear on the boundary: `integer(c_int)`,
-  `real(c_double)`, `character(kind=c_char, len=*)` (NUL-terminated),
-  `type(c_ptr)` where genuinely needed, and plain derived types — which we
-  mostly side-step by using integer handles instead.
-- **Never** put on the public façade: `allocatable` results, `character(len=*)`
-  results, polymorphic `class(...)`, abstract types, type-bound procedures, or
-  Fortran assumed-shape `(:)` arrays.
-- Arrays are **column-major**, matching NumPy `order="F"`. A caller in Python
-  with an `ndarray(order="C")` must copy or transpose before passing; this must
-  be documented in the binding docstrings.
+subroutine train(self, x, y, epochs, learning_rate, loss, batch_size, &
+                 final_loss, ierr)
+    !! Train the network with mini-batch (or full-batch) SGD.
+    class(Network), intent(inout) :: self
+    real(real64), intent(in) :: x(:,:)        !! Input batch, column-major
+    real(real64), intent(in) :: y(:,:)        !! Target batch, column-major
+    integer, intent(in) :: epochs
+    real(real64), intent(in) :: learning_rate
+    type(LossKind), intent(in) :: loss        !! LOSS_* kind constant
+    integer, intent(in) :: batch_size         !! 0 => full-batch
+    real(real64), intent(out) :: final_loss
+    integer, intent(out) :: ierr
 
-## 7. OpenMP
+subroutine predict(self, x, y, ierr)
+    !! Single-example forward inference.
+    class(Network), intent(inout) :: self
+    real(real64), intent(in) :: x(:)   !! One input example
+    real(real64), intent(out) :: y(:)  !! One output example
+    integer, intent(out) :: ierr
 
-OpenMP compatibility is **decided: supported**. The contract:
+subroutine save(self, filename, ierr)
+    !! Persist the configured/trained network to `filename`.
+    class(Network), intent(inout) :: self
+    character(len=*), intent(in) :: filename  !! Plain Fortran filename
+    integer, intent(out) :: ierr
 
-- All compute procedures in the `mLayer` / `mNetwork` forward and backward
-  passes are `pure`; the optimizer update is a separate, side-effecting pass
-  (the split prescribed in
+subroutine load(self, filename, ierr)
+    !! Read a persisted network into `self`.
+    class(Network), intent(inout) :: self
+    character(len=*), intent(in) :: filename  !! Plain Fortran filename
+    integer, intent(out) :: ierr
+
+subroutine last_error(self, code, message)
+    !! Retrieve the last error recorded on this network.
+    class(Network), intent(in) :: self
+    integer, intent(out) :: code              !! Numeric status of the last error
+    character(len=:), allocatable, intent(out) :: message  !! Rich, dynamic message
+
+pure function error_message(code) result(message)
+    !! Baseline static description for any status code (stateless).
+    integer, intent(in) :: code
+    character(len=:), allocatable :: message
+
+function get_version() result(version)
+    !! Current library version string (the existing allocatable-result
+    !! function, RETAINED as the version API — f2py handles an allocatable
+    !! character result natively).
+    character(len=:), allocatable :: version
+```
+
+Notes carrying over from the revision:
+
+- In `train`, `x(:,:)` and `y(:,:)` are **assumed-shape** (`(:,:)`), now allowed
+  freely; the explicit-shape `X(n_in, n_samples)` form that the old draft used
+  existed only because `bind(C)` forbids assumed-shape array arguments — that
+  hack is gone.
+- `save` / `load` take a normal Fortran `character(len=*)` filename; there are
+  no NUL-terminated `c_char` buffers. The persistence format is deferred
+  (§11).
+- `get_version()` keeps its existing allocatable-character result.
+
+## 6. Error model — the "A + B" blend
+
+The old "status code + caller buffer" idiom is replaced by a blend of two
+mechanisms, both of which survive:
+
+- **Every fallible procedure carries `integer, intent(out) :: ierr`** —
+  mandatory on the fallible operations (`initialize`, `add_layer`, `train`,
+  `predict`, `save`, `load`), and `optional` on pure/compute procedures where
+  that is reasonable, at implementation discretion (which ones, deferred to
+  §11).
+- **Option A — stateless baseline.** `ierr` is a numeric status code, and the
+  **pure** module function `error_message(code)` maps any code to its baseline
+  static description. A code is therefore always independently interpretable
+  without holding any object.
+- **Option B — object-attached detail.** A stateful procedure ALSO records a
+  richer, dynamic, per-`Network` message, retrievable via
+  `net%last_error(code, message)`. Keeping the detail on the object the caller
+  already holds means two threads on two different networks never race over a
+  shared "last error" slot.
+
+Error codes are named integer constants, using the same `UPPER_SNAKE` enum-like
+convention as §4.2 (e.g. `ERR_NONE = 0`, `ERR_NO_LAYERS`, `ERR_NO_OUTPUT_LAYER`,
+`ERR_SHAPE_MISMATCH`, `ERR_INVALID_KIND`, `ERR_IO`, `ERR_NOT_INITIALIZED`).
+
+`error stop` remains **forbidden** inside the library — it would kill a hosting
+Python interpreter — so status codes are the signalling mechanism. But the old
+caller-buffer (`buffer(*)` / `buffer_len`) idiom is **gone**: Fortran returns
+allocatable strings directly.
+
+Retained / dropped error conditions from the old required list:
+
+- **Dropped:** "bad handle" — there are no handles any more.
+- **Retained:** a network with **no layers** or **no output layer** at
+  `train`/`predict`/`save` time; shape mismatch between data and layer widths;
+  file I/O failure; and — because Python can pass an out-of-range integer for a
+  dispatch field — a **runtime invalid-kind** check (`ERR_INVALID_KIND`).
+
+## 7. f2py / Python compatibility rules
+
+There is no C-ABI boundary any more; `f2py`/`numpy.f2py` reads Fortran module
+metadata directly. The rules:
+
+- **No `bind(C)`** and **no pinned symbol names**; `iso_c_binding` and `ctypes`
+  are **not** used.
+- Use **assumed-shape** arrays (`(:)`, `(:,:)`) freely; `f2py` maps NumPy arrays
+  to them (no copy when contiguous). Provide an explicit
+  `intent(in/out/inout)` on **every** dummy — `f2py` needs these and allocates
+  `intent(out)` arrays for the caller.
+- Dispatch values are the typed kind constants of §4.2; `f2py` re-exports module
+  `parameter`s, so a Python user writes `mod.ACT_TANH` rather than a magic
+  number.
+- **Column-major / Fortran order** for the 2-D batch arrays: this matches NumPy
+  `order="F"`; a row-major `ndarray` must be `np.asfortranarray`'d (or
+  transposed) before passing. Document this in the binding.
+- **Honest limitation** (recorded so it is not rediscovered the hard way):
+  `f2py` wraps numeric arrays and **simple** derived types well, but does **not**
+  cleanly wrap (a) polymorphic `class(...)` dummy arguments, (b) abstract types
+  with deferred binding, or (c) a type-bound-procedure API where Python holds
+  and mutates a derived-type object whose components are allocatable/polymorphic
+  — and `Network` will hold an allocatable array of `class(Layer)`, each
+  carrying a polymorphic activation. Therefore:
+  1. **All polymorphism (`class(Activation)`, `class(Loss)`,
+     `class(Optimizer)`) stays strictly internal.** Public procedures deal only
+     in `type(Network)`, scalars, plain numeric arrays, and the integer-backed
+     kind codes.
+  2. Making the type-bound procedures callable from Python is a
+     **bounding/implementation-time task**: a thin module-procedure forwarding
+     layer (free procedures that take `type(Network)` and forward to the
+     type-bound ones) and/or `f2py` signature / `pymod` customisation. **That
+     layer is for Python only** — it does not change the Fortran-first OOP
+     public surface. The Fortran OOP API is primary; the `f2py` path is the
+     supported second surface.
+- `pure`, module-state-free compute procedures remain `f2py`-friendly and
+  thread-safe.
+
+## 8. OpenMP
+
+OpenMP compatibility is **decided: supported**, now justified on per-object
+state rather than the C boundary:
+
+- It is precisely the **per-object state** of §4.1 that makes the API safe
+  inside a parallel region — each thread owns its own `Network`, with no shared
+  mutable module state. The module singleton stays forbidden.
+- Compute forward/backward procedures are `pure`; the optimizer update is a
+  separate, side-effecting pass (the split prescribed in
   [`.github/skills/neural-networks/SKILL.md`](../../.github/skills/neural-networks/SKILL.md)).
-- The opaque-handle design is precisely what makes the public façade safe to
-  call from inside a parallel region — each thread holds a **distinct** handle.
-  (This is a standing reason to never regress to a module singleton.)
 - Per-thread RNG is seeded `random_init(seed + thread_num)` — an extension
   available with `gfortran` — so ensembles and hyperparameter sweeps get
   independent random streams.
-- The OpenMP use-cases, ranked as discussed: **ensembles** (best payoff, do
-  this first), **mini-batch data-parallel** (later), and **in-network `matmul`**
-  left to BLAS internal threading to avoid oversubscription.
+- The `matmul` left in §10 is delegated to BLAS internal threading; do not add
+  our own OpenMP around it and oversubscribe.
+- The OpenMP use-cases, ranked: **ensembles** (best payoff, do this first),
+  **mini-batch data-parallel** (later), and **in-network `matmul`** left to
+  BLAS.
 
-## 8. Vulkan / GPU (future idea — NOT in scope for v1)
+## 9. Vulkan / GPU (future idea — NOT in scope for v1)
 
 The human intends to potentially write a Fortran→Vulkan GPU shim in the future.
 For now this is recorded as a kept idea only, not implemented.
 
-- The two-surface architecture is **already future-compatible**: swapping the
-  compute backend later does **not** require any change to the public
-  procedural façade.
-- Concrete plan for when (if) it lands: introduce an internal `Backend`
-  strategy abstraction that `Layer` and `Network` delegate their linear algebra
-  to. A Vulkan backend would live in a thin C+Vulkan shared library exposing
-  `bind(C)` procedures (e.g. `vnn_matmul(handle_in, handle_out, ...)`), keeping
-  Fortran free of `vkCreate*` structures.
-- Two precision notes, recorded for that later work — do **not** implement now:
-  some GPUs lack `shaderFloat64`, and a `real64`-only API is an obstacle for
-  that path, so the design should not *bake in* precision beyond the working
-  `real64` default. Relatedly, parameter-array storage should sit behind an
-  accessor rather than being poked as raw `self%weights(i, j)` everywhere, so a
-  device-resident backing can replace it later. These are **not-urgent refactor
-  targets**, not v1 work.
+- The architecture is **already future-compatible**: the `Backend` strategy
+  abstraction sits **inside** `Layer`/`Network`, so swapping the compute backend
+  later does **not** change the public `Network` API.
+- Plan for when (if) it lands: introduce an internal `Backend` strategy that
+  `Layer` and `Network` delegate their linear algebra to. A Vulkan backend would
+  be a thin C+Vulkan shared library that itself uses `bind(C)` — but note that
+  is about the **Vulkan library being C-callable**, which is unrelated to the
+  user-facing Fortran API (§2 has no `bind(C)` at all).
+- Precision notes for that later work — do **not** implement now: some GPUs lack
+  `shaderFloat64`, and a `real64`-only API is an obstacle there, so the design
+  must not **bake in** precision beyond the working `real64` default. Relatedly,
+  parameter-array storage should sit behind an accessor rather than being poked
+  as raw `self%weights(i, j)` everywhere, so a device-resident backing can
+  replace it later. These are **not-urgent refactor targets**, not v1 work.
 - For v1, use intrinsic `matmul` directly. (Stated explicitly because the human
   asked.)
 - Realism note, recorded as stated: dense-MLP GPU speedups require large GEMMs;
   small training tasks are faster on the CPU.
 
-## 9. Naming decisions summary
+## 10. Naming decisions summary
 
 | Concept | Shape |
 |---|---|
 | Library entry point | `USE mFortranNeuralNetwork` only |
-| Library version (existing) | `get_version()` (Fortran-native); `fnn_version(buf, len)` (FFI) |
-| Network handle | `integer(c_int)` opaque identifier |
-| Activations / losses / optimizers / layer kinds (public surface) | `integer(c_int)` named constants |
-| Activation / loss / optimizer polymorphism (internally) | abstract base + concrete extensions in one module; selected once by `new_*` factory |
-| Error signalling (public surface) | `intent(out)` `integer(c_int) ierr` + `fnn_last_error(buf, len)` |
-| Persistence | `fnn_save_network` / `fnn_load_network`; plain text format, exact format defined at implementation time |
-| Linear algebra (v1) | intrinsic `matmul`, no `Backend` abstraction yet |
+| Version | `get_version()` (allocatable-result function; `f2py`-friendly) — **no** buffer / `fnn_version` |
+| Network state | `type(Network)` object — **no** handle, **no** registry |
+| Activations / losses / optimizers / layer kinds | integer-backed typed enum derived types (`ActivationKind`, etc.) with `UPPER_SNAKE` named constants |
+| Polymorphism | abstract base + concrete extensions in one private module; **internal only**, never crosses a public procedure |
+| Public procedures | type-bound on `Network`, **no** `fnn_` prefix: `net%initialize`, `net%add_layer`, `net%train`, `net%predict`, `net%save`, `net%load`, `net%last_error` |
+| Error signalling | `ierr` (integer, mandatory on fallible ops) + pure `error_message(code)` + per-object `net%last_error(code, message)`; **no** caller buffer |
+| Python binding | `f2py` (no `ctypes`, no `bind(C)`); thin module-procedure shim if needed; arrays column-major |
+| Persistence | `net%save` / `net%load`, plain Fortran filenames; exact format deferred |
+| Linear algebra (v1) | intrinsic `matmul`, no `Backend` yet |
 | Precision (v1) | `real64` throughout |
-| OpenMP | safe; module singleton is forbidden (handle-based) |
+| OpenMP | safe; module singleton forbidden (per-object state) |
 | Vulkan (v1) | out of scope |
 
-## 10. Decisions deferred to implementation time
+## 11. Decisions deferred to implementation time
 
 Things we intentionally did **not** resolve, so future sessions do not relitigate
 them here:
 
-- The exact training-data flow shape (flat row-major vs a column-major batch
-  convention — leaning columns; decided at implementation).
-- The persistence file format (plain text; the exact serialization is
-  unspecified).
-- Whether `predict` accepts a batch across the C boundary or only one example
-  (decide after testing ergonomics; likely single-example for v1).
-- Whether the façade is built on top of an internal `fnn_predict_batch`
-  (probably needed for `train` regardless).
+- The persistence file format (plain text; the exact serialization is deferred).
+- The exact batch data layout for `train` (column-major assumed-shape is the
+  lean; finalize at implementation).
+- Whether `predict` / a public `forward` accepts a **batch** in v1 or only a
+  single example.
+- The `f2py` binding mechanism for the type-bound procedures (module-procedure
+  shim vs `f2py` signature / `pymod`) — decided at binding-implementation time.
+- On which pure procedures `ierr` is `optional`.
 - Optimizer follow-ups — when to add momentum / Adam.
 
-## 11. Out of scope for this design memory
+## 12. Out of scope for this design memory
 
 Explicitly outside this document's concern (and outside v1): regularisation
 (L2 / dropout), learning-rate schedules and warmup, convolutional layers,

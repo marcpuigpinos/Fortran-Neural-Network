@@ -1,7 +1,7 @@
 > **AI Assisted**
-> Status: ongoing
+> Status: finished
 > Branch: feature/optimizer-gd
-> Merge commit: —
+> Merge commit: 7de05eef480fb9632b8181d6142b043a2383036e
 
 # Api mockup
 
@@ -10,3 +10,4 @@ Read the `docs/memory/API_DESIGN.md` and implement the module optimizers.f90. Th
 ## Progress
 
 - 2026-10-19: v0.1.0 committed on feature/optimizer-gd (da90db1) — Implemented the `mOptimizers` module (`src/optimizers.f90`) with the abstract `Optimizer` base (deferred `update` binding) and the concrete full-batch `GradientDescent`, plus four new unit tests (single-step arithmetic, zero-lr no-op, quadratic convergence, virtual dispatch); all builds warning-free, all 5 tests pass, review clean.
+- 2026-10-19: merged into main (7de05eef480fb9632b8181d6142b043a2383036e); branch deleted.

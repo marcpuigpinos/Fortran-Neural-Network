@@ -9,9 +9,11 @@ changes and [`AGENTS.md`](../AGENTS.md) for the authoritative style rules.
 
 ## Overview
 
-As of version **0.0.2** the library consists of a single entry-point module,
+As of version **0.1.0** the library consists of a single entry-point module,
 augmented by a small version module (`mVersion`) that the build generates
-from the `VERSION` file. The overall repository layout (per `AGENTS.md`) is:
+from the `VERSION` file, plus the first internal implementation module of the
+planned architecture, `mOptimizers` (optimizer strategies; see below). The
+overall repository layout (per `AGENTS.md`) is:
 
 ```
 src/        Fortran library sources (one module per file)
@@ -77,6 +79,31 @@ the `m` + `PascalCase` module convention, so `fortranNeuralNetwork.f90`
 defining `mFortranNeuralNetwork` is the standard naming (no exception
 required).
 
+### `mOptimizers` — parameter-update strategies (internal)
+
+Defined in `src/optimizers.f90` (version **0.1.0**). This is the first
+internal module of the architecture planned in
+[`memory/API_DESIGN.md`](memory/API_DESIGN.md) to land. It is **not**
+currently re-exported through `mFortranNeuralNetwork`: no `Network` type
+exists yet, so today it is consumed directly (by the tests below) and will be
+wired into the umbrella module when the network layer arrives. The module
+depends on nothing but `iso_fortran_env` (`real64`), so it compiles
+independently of the not-yet-written `mLayer`/`mNetwork`.
+
+The design follows the "separate update pass" pattern: forward and backward
+passes stay pure, and only the optimizer mutates parameters.
+
+#### Public API
+
+| Symbol | Kind | Description |
+|---|---|---|
+| `Optimizer` | `abstract type` | Base for parameter-update strategies. Single deferred binding `update(self, weights, bias, d_weights, d_bias, learning_rate)`, applying one in-place step for one layer's parameters `W(n_out, n_in)` / `b(n_out)`. The base carries no state; stateful strategies add components in their own extension. |
+| `GradientDescent` | `type, extends(Optimizer)` | Plain gradient descent: `W = W - lr*dW`, `b = b - lr*db`. Batch-agnostic — full-batch GD for whole-set gradients, SGD for mini-batch gradients. Named `GradientDescent` (not `SGD`) per the human's feature note; momentum/Adam deferred per `API_DESIGN.md` §11. |
+
+| Binding | Arguments | Notes |
+|---|---|---|
+| `update` | `class(Optimizer), intent(inout) :: self`; `real(real64), intent(inout) :: weights(:,:)`, `bias(:)`; `real(real64), intent(in) :: d_weights(:,:)`, `d_bias(:)`; `real(real64), intent(in) :: learning_rate` | Mutates `weights`/`bias` in place; never writes through the gradients. Not `pure` by design — mutation is isolated here. |
+
 ## Tests
 
 Tests are standalone programs under `tests/` named
@@ -88,6 +115,10 @@ and is discovered and run by `make test`.
 | Test | Covers |
 |---|---|
 | `tests/testVersion.f90` | `get_version()` equals the `VERSION` file contents (read from disk and trimmed at runtime; the working directory is the repo root under `make test`) and has the same length. |
+| `tests/testOptimizersStep.f90` | One `GradientDescent%update` step matches `W - lr*dW` / `b - lr*db` exactly (independently computed), and the `intent(in)` gradients are left unmodified. |
+| `tests/testOptimizersZeroLr.f90` | `learning_rate = 0` leaves weights and biases unchanged (no-op step). |
+| `tests/testOptimizersConvergence.f90` | Repeated gradient-descent steps minimise a quadratic and converge to its analytic minimum. |
+| `tests/testOptimizersDispatch.f90` | Virtual dispatch through a `class(Optimizer)` polymorphic variable reaches the `GradientDescent` implementation. |
 
 ## Build-system notes
 

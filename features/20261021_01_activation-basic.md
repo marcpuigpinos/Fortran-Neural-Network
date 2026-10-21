@@ -15,3 +15,7 @@ Program the abstract class for activation functions. Each activation function cl
 # Test
 
 Implement the tests for fully cover all possible cases within this module.
+
+## Progress
+
+- 2026-10-21: v0.2.0 committed on feature/activation-basic (adb4a60) — Implemented the internal `mActivations` module: abstract `Activation` base with deferred `fn`/`deriv` plus concrete `ReLU` and overflow-safe `Sigmoid`, with four new unit tests (ReLU fn/deriv and kink convention, sigmoid analytic values, sigmoid ±1000 numerical stability, polymorphic dispatch through `class(Activation)`); release+debug builds warning-free, full suite 9/9 passing, review clean.

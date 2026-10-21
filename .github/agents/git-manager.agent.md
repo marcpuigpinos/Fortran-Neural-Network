@@ -22,18 +22,40 @@ git commands.
 - **Version bump**: read `VERSION` (semantic version `MAJOR.MINOR.PATCH`) and
   bump it as the orchestrator specifies (minor for features, patch for fixes).
   Update `VERSION` only — do not touch other files.
-- **Commit**: stage all project changes, commit on the current branch with a
-  message of the form `v<version>: <concise summary>` (or
-  `<type>: <summary>` for flow commits without a version). Verify with
-  `git status` that nothing tracked is left uncommitted.
+- **Commit**: stage all project changes (`git add -A`) and commit on the
+  current branch with a message of the form `v<version>: <concise summary>`
+  (or `<type>: <summary>` for flow commits without a version, such as the
+  feature-branch flow commit). Verify with `git status` that nothing tracked
+  is left uncommitted. This remains the commit used by the feature-branch
+  flow; the bookkeeping commit on `main` that closes a feature is a distinct,
+  narrower commit — see **Finalize & push bookkeeping** below.
 - **Merge**: only on explicit orchestrator instruction coming from the human:
-  checkout `main`, merge the given branch (`--no-ff`), and push `main` and
-  the tag if remotes exist. On conflicts, stop and report — never force.
-  ALWAYS report the full merge commit hash in your output (the
-  `feature-manager` records it in the feature file).
+  checkout `main`, merge the given branch with `git merge --no-ff`, and
+  report the full merge commit hash (`git rev-parse HEAD`) in the output.
+  Do NOT push here and do NOT create or push a tag here. Pushing is the
+  final step of the flow and is done only by the
+  **Finalize & push bookkeeping** operation below, once the feature file has
+  been moved to `features/finished/`. On merge conflicts stop and report —
+  never force. The full merge hash returned here is what the
+  `feature-manager` records in the feature file.
 - **Delete branch**: delete a local feature branch with `git branch -d`
   (NEVER `-D`) only on explicit orchestrator instruction, and only after a
   successful merge of that branch into `main`.
+- **Finalize & push bookkeeping**: the LAST mutating git step of a feature
+  flow. Runs only after the orchestrator confirms that the `feature-manager`
+  has (a) marked the feature file finished, (b) recorded the merge commit
+  hash, and (c) moved the file into `features/finished/` using `git mv`, and
+  that the orchestrator has verified no stray copy exists at the old path
+  (either the file is simply absent, or any untracked duplicate has already
+  been removed). Stage ONLY the features/ changes (the rename to
+  `features/finished/`, plus the file content edit made by `feature-manager`).
+  Verify with `git status` that no other tracked file is staged and no
+  unexpected untracked file remains (if any untracked duplicate under
+  `features/` survives the check, stop and report — do not `git add -A`).
+  Commit with the exact message suggested by `feature-manager`
+  (e.g. `feature: finalize <short-name> (merge <full hash>)`). THEN, and
+  only now, push `main` to origin (and any tag if the orchestrator
+  instructed one). This is the single push that closes the feature.
 - **Tag** (when instructed): annotated tag `v<version>` on the merge/feature
   commit.
 

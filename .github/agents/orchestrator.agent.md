@@ -72,14 +72,30 @@ conventions and the build commands.
 
 Only when the human explicitly says to merge:
 
-1. Tell `git-manager` to merge the feature branch into `main` with
-   `--no-ff` and then delete the now-merged branch (both on that explicit
-   instruction), reporting the full merge commit hash.
-2. Tell `feature-manager` to run `finish` on the feature file with that merge
-   hash: status `finished`, `Merge commit` recorded, file moved to
-   `features/finished/`.
-3. Tell `git-manager` to commit the resulting `features/` bookkeeping change
-   on `main` (message as suggested by `feature-manager`) and push.
+1. **Merge** — Tell `git-manager` to checkout `main`, merge the feature
+   branch with `--no-ff`, delete the merged local branch, and report the
+   full merge commit hash. `git-manager` must NOT push at this step.
+2. **Finalize & track** — Tell `feature-manager` to run `finish` on the
+   feature file with that merge hash: verify hash against `main`, append
+   the merge progress entry, set `Status: finished`, record
+   `Merge commit: <hash>`, and move the file into `features/finished/`
+   using `git mv` — not `mv`, not copy. `feature-manager` must also verify
+   the old path is gone both on disk (`ls features/`) and in the git index
+   (`git ls-files features/<name>.md` produces no output). If a stray or
+   duplicate file remains at the old path even briefly (e.g. an editor tab
+   recreates it after the move), the feature-manager must delete the stray
+   file before returning OK.
+3. **Commit & push** — Tell `git-manager` to run the **Finalize & push
+   bookkeeping** operation: stage ONLY the `features/` rename + edit, verify
+   `git status` shows nothing unexpected (no stray file under `features/`),
+   commit with `feature-manager`'s suggested message, and push `main` to
+   origin. This commit + push is the single push closing the feature;
+   nothing else may push during the flow. If `git status` shows an
+   unexpected file, do NOT commit; report back and reconcile first.
+
+The `commit + push` in step 3 is the ONLY moment git pushes during a merge.
+The merge commit (step 1) stays local until step 3 succeeds, so a failed or
+unfinished feature-file move cannot leak a half-finished `main` to origin.
 
 Never merge on your own initiative.
 

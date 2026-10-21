@@ -56,13 +56,21 @@ maintain the metadata header and the `## Progress` section only.
   1. append a dated `## Progress` entry
      `- YYYY-MM-DD: merged into main (<full merge hash>); branch deleted.`;
   2. set `Status: finished` and `Merge commit: <full merge hash>`;
-  3. move the file to `features/finished/` (create the directory if needed).
-  The finished feature must then exist ONLY at `features/finished/<name>.md`:
-  perform the move with `mv` (never copy), and afterwards verify the original
-  `features/<name>.md` no longer exists (e.g. `ls features/` — re-list the
-  directory or `git status`, both allowed). A leftover copy at the old path
-  would be committed as a duplicate of the finished file, so the move is not
-  complete until the old path is gone. Do not commit — the commit stays with
+  3. move the file to `features/finished/` (create the directory if needed)
+     using `git mv` so git records a rename and cannot leave a stale entry
+     for the old path in the index. NEVER use a plain shell `mv` or a
+     copy-and-delete pattern.
+  Afterwards verify the move completed on BOTH layers:
+    - filesystem: the original `features/<name>.md` no longer exists
+      (`ls features/` must not list it).
+    - git index: `git ls-files features/<name>.md` must produce no output,
+      and `git status --short` must show a rename `R features/<name>.md ->
+      features/finished/<name>.md` (or a staged delete of the old path).
+  If either check still shows the old path, the move is INCOMPLETE: fix it
+  before reporting OK. A duplicate at the old path (tracked or untracked)
+  must never be left behind — if an untracked duplicate appears after the
+  move (e.g. an open editor tab re-created it), delete the duplicate and
+  re-verify; never commit it. Do not commit — the commit stays with
   `git-manager`. Fail if the status is not `ongoing`.
 
 ## Git usage (read-only verification)

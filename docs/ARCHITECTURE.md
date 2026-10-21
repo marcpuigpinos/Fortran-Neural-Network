@@ -9,11 +9,12 @@ changes and [`AGENTS.md`](../AGENTS.md) for the authoritative style rules.
 
 ## Overview
 
-As of version **0.1.0** the library consists of a single entry-point module,
+As of version **0.2.0** the library consists of a single entry-point module,
 augmented by a small version module (`mVersion`) that the build generates
-from the `VERSION` file, plus the first internal implementation module of the
-planned architecture, `mOptimizers` (optimizer strategies; see below). The
-overall repository layout (per `AGENTS.md`) is:
+from the `VERSION` file, plus the first internal implementation modules of the
+planned architecture: `mOptimizers` (optimizer strategies) and `mActivations`
+(element-wise activation functions; see below). The overall repository layout
+(per `AGENTS.md`) is:
 
 ```
 src/        Fortran library sources (one module per file)
@@ -104,6 +105,37 @@ passes stay pure, and only the optimizer mutates parameters.
 |---|---|---|
 | `update` | `class(Optimizer), intent(inout) :: self`; `real(real64), intent(inout) :: weights(:,:)`, `bias(:)`; `real(real64), intent(in) :: d_weights(:,:)`, `d_bias(:)`; `real(real64), intent(in) :: learning_rate` | Mutates `weights`/`bias` in place; never writes through the gradients. Not `pure` by design — mutation is isolated here. |
 
+### `mActivations` — element-wise activations (internal)
+
+Defined in `src/activations.f90` (version **0.2.0**). This is the second
+internal module of the architecture planned in
+[`memory/API_DESIGN.md`](memory/API_DESIGN.md) (section 3) to land. Like
+`mOptimizers` it is **not** currently re-exported through
+`mFortranNeuralNetwork`: no `Network`/`Layer` type exists yet, so today it is
+consumed directly (by the tests below) and will be wired into the umbrella
+module when the network layer arrives. It depends on nothing but
+`iso_fortran_env` (`real64`), so it compiles independently of the
+not-yet-written `mLayer`/`mNetwork`. The planned `ACT_*` dispatch-kind
+constants were deferred to that feature, parallel to how `OPT_SGD` was left
+out of `mOptimizers`.
+
+The design follows the activation/derivative pairing: forward and backward
+passes stay pure, and each activation supplies both its value and its
+derivative with respect to the pre-activation `z`.
+
+#### Public API
+
+| Symbol | Kind | Description |
+|---|---|---|
+| `Activation` | `abstract type` | Base for element-wise activations. Two deferred bindings `fn(self, z)` (the value `a = f(z)`) and `deriv(self, z)` (the derivative `d = df/dz`), both applied element-wise to a 1-D `real(real64)` array `z(:)` and returning a same-shape array. Both are `pure`; the base carries no state. Further activations (tanh, softmax, linear) are planned as extensions in a later feature. |
+| `ReLU` | `type, extends(Activation)` | Rectified Linear Unit: `a = max(0, z)`; derivative `1` for `z > 0` else `0`, with the documented convention `deriv(0) = 0` at the kink. |
+| `Sigmoid` | `type, extends(Activation)` | Logistic sigmoid `a = 1/(1 + exp(-z))` in `(0, 1)`, evaluated via a branch-stabilised form (the `z >= 0` branch uses `1/(1+exp(-z))`, the `z < 0` branch `exp(z)/(1+exp(z))`) so the exponential never overflows for any finite `z`. Derivative expressed through the activation value `d = a*(1 - a)`, reusing the stable evaluation. |
+
+| Binding | Arguments | Notes |
+|---|---|---|
+| `fn` | `class(Activation), intent(in) :: self`; `real(real64), intent(in) :: z(:)`; result `a(size(z))` | Element-wise activation value. `pure`. Not `elemental` by design: the deferred binding's passed-object dummy is polymorphic (`class(Activation)`), which `elemental` forbids, so the formula is applied element-wise in the implementation. |
+| `deriv` | `class(Activation), intent(in) :: self`; `real(real64), intent(in) :: z(:)`; result `d(size(z))` | Element-wise derivative w.r.t. the pre-activation `z`, which backpropagation multiplies the upstream gradient by. `pure`. |
+
 ## Tests
 
 Tests are standalone programs under `tests/` named
@@ -119,6 +151,10 @@ and is discovered and run by `make test`.
 | `tests/testOptimizersZeroLr.f90` | `learning_rate = 0` leaves weights and biases unchanged (no-op step). |
 | `tests/testOptimizersConvergence.f90` | Repeated gradient-descent steps minimise a quadratic and converge to its analytic minimum. |
 | `tests/testOptimizersDispatch.f90` | Virtual dispatch through a `class(Optimizer)` polymorphic variable reaches the `GradientDescent` implementation. |
+| `tests/testActivationsRelu.f90` | ReLU `fn`/`deriv`, including the `deriv(0) = 0` kink convention. |
+| `tests/testActivationsSigmoid.f90` | Sigmoid `fn`/`deriv`: value at 0, symmetry, monotonicity, known values, and the derivative range `(0, 0.25]`. |
+| `tests/testActivationsSigmoidStability.f90` | `±1000` inputs stay finite and in-bounds via `ieee_arithmetic`, proving the overflow-safe branch. |
+| `tests/testActivationsDispatch.f90` | Polymorphic dispatch through a `class(Activation)` polymorphic variable proves the deferred bindings resolve correctly. |
 
 ## Build-system notes
 

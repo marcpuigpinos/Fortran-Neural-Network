@@ -7,6 +7,67 @@ Changelog](https://keepachangelog.com/) format, following [semantic
 versioning](https://semver.org/). The current release is also recorded in the
 `VERSION` file at the repository root. Entries are listed newest first.
 
+## [0.2.0] - 2026-10-21
+
+### Added
+
+- **Internal activation module `mActivations`** (`src/activations.f90`), the
+  second piece of the architecture planned in
+  [`memory/API_DESIGN.md`](memory/API_DESIGN.md) (section 3, `mActivations`)
+  to land. It follows the activation/derivative pairing prescribed by the
+  neural-network implementation skill
+  (`.github/skills/neural-networks/SKILL.md`): every trainable activation
+  supplies both halves, and the derivative is taken with respect to the
+  pre-activation `z`, which is exactly what backpropagation multiplies the
+  upstream gradient by. Exports:
+
+  - `Activation` — abstract base type for element-wise activations with two
+    deferred bindings, `fn(self, z)` (the activation value `a = f(z)`) and
+    `deriv(self, z)` (the derivative `d = df/dz`), both applied element-wise
+    to a 1-D `real(real64)` array `z(:)` and returning a same-shape array.
+    The base is stateless and both bindings are `pure`.
+  - `ReLU` — first concrete extension, `a = max(0, z)`, with derivative `1`
+    for `z > 0` else `0`. The ReLU kink at `z = 0` has no true derivative;
+    the documented convention `deriv(0) = 0` is used (the alternative
+    subgradient `1` would silently revive units sitting exactly at the kink).
+  - `Sigmoid` — second concrete extension, `a = 1 / (1 + exp(-z))`, evaluated
+    via a branch-stabilised form (`1/(1+exp(-z))` for `z >= 0`,
+    `exp(z)/(1+exp(z))` for `z < 0`) so the exponential never overflows to
+    `INF`/`NaN` for any finite `z`. The derivative reuses that stable value as
+    `d = a * (1 - a)`, so backpropagation never recomputes an exponential and
+    the derivative path inherits the same overflow-safety.
+
+  Like `mOptimizers`, the module depends only on `iso_fortran_env` (`real64`)
+  and is deliberately **not yet re-exported** through
+  `mFortranNeuralNetwork`: no `Network`/`Layer` type exists yet, so
+  `mActivations` is consumed directly by tests today and will be wired into
+  the umbrella module when the network layer arrives. The planned `ACT_*`
+  typed dispatch-kind constants were likewise deferred to that feature,
+  parallel to how `OPT_SGD` was left out of `mOptimizers`.
+
+- **Four test programs** for `mActivations` (all passing; the suite is now 9
+  tests, all green; debug and release builds warning-free):
+
+  | Test | Covers |
+  |---|---|
+  | `tests/testActivationsRelu.f90` | ReLU `fn`/`deriv`, including the `deriv(0) = 0` kink convention. |
+  | `tests/testActivationsSigmoid.f90` | Sigmoid `fn`/`deriv`: value at 0, symmetry, monotonicity, known values, and the derivative range `(0, 0.25]`. |
+  | `tests/testActivationsSigmoidStability.f90` | `±1000` inputs stay finite and in-bounds via `ieee_arithmetic`, proving the overflow-safe branch. |
+  | `tests/testActivationsDispatch.f90` | Polymorphic dispatch through a `class(Activation)` polymorphic variable proves the deferred bindings resolve correctly. |
+
+### Notes
+
+- **Why `fn`/`deriv` are not `elemental`.** The deferred bindings must accept
+  the passed-object dummy, which is polymorphic (`class(Activation)`), and
+  `elemental` procedures forbid polymorphic dummies. They therefore take a 1-D
+  assumed-shape array `z(:)` and apply their formula element-wise in their
+  implementations; both concrete implementations are `pure`, and the abstract
+  interfaces are `pure` as well so the specific bindings conform (a deferred
+  binding and its implementation must agree on purity).
+- The library version moves `0.1.0 → 0.2.0` (new functionality,
+  backward-compatible); `get_version()` and the generated `mVersion` module
+  derive `0.2.0` from `VERSION` automatically (no source changes needed).
+
 ## [0.1.0] - 2026-10-19
 
 ### Added

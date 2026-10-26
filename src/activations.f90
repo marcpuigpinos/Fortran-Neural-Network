@@ -4,8 +4,8 @@ module mActivations
     !!
     !! This internal module defines the activation abstraction prescribed by
     !! `docs/memory/API_DESIGN.md` (section 3): an abstract `Activation` base
-    !! with deferred `fn`/`deriv` bindings and the concrete `ReLU` and
-    !! `Sigmoid` types in the same module. The activation/derivative pairing
+    !! with deferred `fn`/`deriv` bindings and the concrete `ReLU`, `Sigmoid`
+    !! and `Heaviside` types in the same module. The activation/derivative pairing
     !! follows the implementation checklist in
     !! `.github/skills/neural-networks/SKILL.md`: every trainable activation
     !! supplies both halves, and the sigmoid derivative is expressed via
@@ -28,7 +28,7 @@ module mActivations
     !! purity).
     !!
     !! @author Fortran-Neural-Network project
-    !! @version 0.2.0
+    !! @version 0.3.0
     !! @license MIT
 
     use, intrinsic :: iso_fortran_env, only: real64
@@ -40,6 +40,7 @@ module mActivations
     public :: Activation
     public :: ReLU
     public :: Sigmoid
+    public :: Heaviside
 
     !! Abstract base for element-wise activation functions.
     !!
@@ -109,6 +110,22 @@ module mActivations
         procedure :: fn => sigmoid_fn        !! Evaluate the sigmoid
         procedure :: deriv => sigmoid_deriv  !! Evaluate the sigmoid derivative
     end type Sigmoid
+
+    !! Heaviside step activation: a = 0 if z < 0, else 1, with H(0) = 1.
+    !!
+    !! The discontinuous two-valued step function
+    !! (https://en.wikipedia.org/wiki/Heaviside_step_function), outputting
+    !! values in `{0, 1}` (a subset of `[0, 1]`). Unlike `ReLU` and `Sigmoid`
+    !! this activation is not trainable by standard SGD: its derivative is
+    !! zero almost everywhere (see `heaviside_deriv`), so gradients vanish
+    !! and no useful weight updates flow through it. It is provided as a
+    !! hard-threshold/indicator building block rather than as a hidden-layer
+    !! activation.
+    type, extends(Activation) :: Heaviside
+    contains
+        procedure :: fn    => heaviside_fn     !! Evaluate the Heaviside step
+        procedure :: deriv => heaviside_deriv  !! Evaluate the Heaviside derivative
+    end type Heaviside
 
 contains
 
@@ -194,5 +211,42 @@ contains
         a = sigmoid_fn(self, z)
         d = a * (1.0_real64 - a)
     end function sigmoid_deriv
+
+    pure function heaviside_fn(self, z) result(a)
+        !! Evaluate the Heaviside step a = 0 if z < 0, else 1, element-wise.
+        !!
+        !! The H(0) = 1 convention is used: the step returns 1 at and above
+        !! the origin (https://en.wikipedia.org/wiki/Heaviside_step_function).
+        !! Stateless and side-effect-free, hence `pure`. `self` is required
+        !! by the deferred-binding contract but carries no state here.
+        ! `self` is intentionally unused here: Heaviside is stateless, but the
+        ! deferred binding contract requires the dummy (declared as the
+        ! extending type, as an override of a deferred binding demands).
+        class(Heaviside), intent(in) :: self  !! This activation (state unused)
+        real(real64), intent(in) :: z(:)       !! Pre-activation values (1-D)
+        real(real64) :: a(size(z))             !! Activated values in {0, 1}, shape `z`
+
+        a = merge(1.0_real64, 0.0_real64, z >= 0.0_real64)
+    end function heaviside_fn
+
+    pure function heaviside_deriv(self, z) result(d)
+        !! Evaluate the Heaviside derivative as the classical value d = 0.
+        !!
+        !! The generalized/distributional derivative of the Heaviside step is
+        !! the Dirac delta delta(x), which has no finite real-number
+        !! representation; that is exactly why a pure step activation is not
+        !! trainable by standard SGD gradient descent. The library therefore
+        !! returns the classical pointwise derivative, which is 0 everywhere
+        !! off the kink, and takes the value 0 also at z = 0 — the documented,
+        !! testable convention (consistent with the ReLU kink choosing 0).
+        ! `self` is intentionally unused here: Heaviside is stateless, but the
+        ! deferred binding contract requires the dummy (declared as the
+        ! extending type, as an override of a deferred binding demands).
+        class(Heaviside), intent(in) :: self  !! This activation (state unused)
+        real(real64), intent(in) :: z(:)       !! Pre-activation values (1-D)
+        real(real64) :: d(size(z))             !! Derivative values (all 0), shape `z`
+
+        d = 0.0_real64
+    end function heaviside_deriv
 
 end module mActivations

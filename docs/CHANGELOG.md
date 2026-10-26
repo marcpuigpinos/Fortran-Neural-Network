@@ -7,6 +7,59 @@ Changelog](https://keepachangelog.com/) format, following [semantic
 versioning](https://semver.org/). The current release is also recorded in the
 `VERSION` file at the repository root. Entries are listed newest first.
 
+## [0.3.0] - 2026-10-26
+
+### Added
+
+- **`Heaviside` activation** (`src/activations.f90`), the third concrete
+  `extends(Activation)` type in `mActivations`, added alongside the existing
+  `ReLU` and `Sigmoid`. The abstract `Activation` base and its deferred
+  `fn`/`deriv` bindings (`docs/memory/API_DESIGN.md` section 3,
+  `.github/skills/neural-networks/SKILL.md`) are unchanged; `Heaviside` simply
+  supplies a third pair of overrides following the same activation/derivative
+  pairing. It implements the Heaviside step function
+  ([Wikipedia](https://en.wikipedia.org/wiki/Heaviside_step_function)),
+  `H(x) = 0` for `x < 0` and `H(x) = 1` for `x >= 0`, with the documented
+  `H(0) = 1` convention. Like the other activations its bindings are `pure`
+  and applied element-wise to a 1-D `real(real64)` array `z(:)`:
+
+  - `fn` returns the `{0, 1}` values directly via
+    `merge(1.0_real64, 0.0_real64, z >= 0.0_real64)`, so the result is exactly
+    `1` at and above the origin and `0` below it (a subset of `[0, 1]`).
+  - `deriv` returns the classical pointwise derivative `0` for every element,
+    including `z = 0` (consistent with the ReLU kink choosing the `0`
+    subgradient). NOTE: the generalized/distributional derivative of the step
+    function is the Dirac delta `delta(x)`, which has no finite real-number
+    representation — this is exactly why a pure step activation is not
+    trainable by standard SGD gradient descent (the gradient vanishes almost
+    everywhere, so no useful weight updates flow through it). The type is
+    therefore provided as a hard-threshold/indicator building block rather
+    than as a hidden-layer activation; see `heaviside_deriv` for the same
+    explanation at the source level, mirroring how the ReLU/Sigmoid entries
+    document their derivative conventions.
+
+  As with `ReLU`/`Sigmoid` and `mOptimizers`, `mActivations` remains **not**
+  re-exported through `mFortranNeuralNetwork` (no `Layer`/`Network` type exists
+  yet) and this feature only added `public :: Heaviside`. The module still
+  depends solely on `iso_fortran_env` (`real64`).
+
+- **Two test programs** for `Heaviside` (all passing; the suite is now 11
+  tests, all green; release and debug builds warning-free):
+
+  | Test | Covers |
+  |---|---|
+  | `tests/testActivationsHeaviside.f90` | Direct `Heaviside` `fn`/`deriv` checks on a mixed-sign vector: the `{0, 1}` membership of every `fn` result, the `H(0) = 1` kink convention (pinned both by a dedicated single-element call and by the mixed-sign mask), and that `deriv` is identically `0` for every element including `z = 0`. |
+  | `tests/testActivationsHeavisideDispatch.f90` | Polymorphic dispatch through a `class(Activation)` variable allocated to `Heaviside`, proving the deferred bindings resolve to the Heaviside implementations (`fn` → `{0, 1, 1}`, `deriv` → `{0, 0, 0}` on a negative/zero/positive input). |
+
+### Notes
+
+- The `mActivations` module `@version` FORD tag was synced to `0.3.0` to track
+  the `VERSION` file, per the documentation rule that `@version` mirrors
+  `VERSION`.
+- The library version moves `0.2.0 → 0.3.0` (new functionality,
+  backward-compatible); `get_version()` and the generated `mVersion` module
+  derive `0.3.0` from `VERSION` automatically (no source changes needed).
+
 ## [0.2.0] - 2026-10-21
 
 ### Added

@@ -7,6 +7,94 @@ Changelog](https://keepachangelog.com/) format, following [semantic
 versioning](https://semver.org/). The current release is also recorded in the
 `VERSION` file at the repository root. Entries are listed newest first.
 
+## [0.4.0] - 2026-10-27
+
+### Added
+
+- **Abstract layer base `mAbstractLayer`** (`src/mAbstractLayer.f90`), the
+  third internal module of the architecture planned in
+  [`memory/API_DESIGN.md`](memory/API_DESIGN.md) (section 3, `AbstractLayer`)
+  to land. It defines the abstract base type `AbstractLayer` for all layer
+  kinds, with three deferred `pure` type-bound bindings:
+
+  - `forward(self, x) result(y)` — pure evaluation of the layer on a 1-D
+    input vector `x(:)`, returning a 1-D output vector `y(:)`. The result is
+    declared `allocatable` because the abstract interface cannot fix the
+    output length from the base type alone (only the concrete implementation
+    knows `n_out`); each concrete implementation allocates the correct size.
+  - `output_size(self) result(n)` — the output dimension the layer produces,
+    used by the future network driver to validate layer-to-layer shape
+    compatibility and allocate caches.
+  - `parameter_count(self) result(n)` — the total number of trainable
+    scalars (weights plus biases), used by the future driver to size flat
+    gradient and optimizer state buffers.
+
+  The forward-only v1 design is intentional: backward/gradient methods are
+  deliberately excluded here because the network driver owns backpropagation
+  (`docs/memory/API_DESIGN.md` section 3). Like `mOptimizers`/`mActivations`
+  the module depends solely on `iso_fortran_env` (`real64`), its abstract
+  interfaces use the same forward-reference-after-declaration pattern as
+  those modules, and it is **not** re-exported through
+  `mFortranNeuralNetwork`: no `Network` type exists yet, so it is consumed
+  directly (by the tests below) and will be wired into the umbrella module
+  when the network layer arrives.
+
+- **Concrete dense layer `mDenseLayer`** (`src/mDenseLayer.f90`), the first
+  concrete `extends(AbstractLayer)` type, implementing the fully-connected
+  affine transform `y = matmul(W, x) + b`. No activation is applied —
+  pairing a layer with an `Activation` from `mActivations` is the future
+  network driver's job, which keeps this type a pure affine transform. The
+  weights are stored as `W(n_out, n_in)` per
+  `.github/skills/neural-networks/SKILL.md`, so the forward pass is a single
+  `matmul` call and backpropagation needs no transpose convention. Exports:
+
+  - `DenseLayer` — the layer type with public components `weights(:,:)`
+    (`n_out x n_in`), `bias(:)` (`n_out`), `n_in` and `n_out` (both `0`
+    until initialized), mirroring the pragmatic open-component simplicity
+    of `mActivations`/`mOptimizers`. It implements the three deferred
+    bindings: `forward` (pure) as `matmul(W, x) + b`, `output_size` (pure)
+    as `n_out`, and `parameter_count` (pure) as `n_out * n_in + n_out`.
+  - `dense_init(self, n_in, n_out)` — the public module subroutine that
+    (re)establishes the shape invariants `size(weights, 1) == n_out`,
+    `size(weights, 2) == n_in` and `size(bias) == n_out` and records the
+    dimensions. It allocates, so it is deliberately not `pure`; it
+    ZERO-fills weights and biases and releases any existing allocations
+    first, so calling it repeatedly (or resizing) an already-allocated
+    layer is safe.
+
+  Randomized weight initialization (Xavier/He with a stored seed, per
+  `.github/skills/neural-networks/SKILL.md`) is deliberately **deferred** to
+  a future feature alongside the network driver. The symmetric-zero caveat
+  of zero-initialized weights — every neuron of a trained layer would be
+  identical and symmetry would never break — is documented at the source
+  level rather than hidden, and real training must replace the zero fill
+  first. Like `mAbstractLayer`, the module is **not** re-exported through
+  `mFortranNeuralNetwork`.
+
+- **Five test programs** for `mAbstractLayer`/`mDenseLayer` (all passing;
+  the suite is now 16 tests, all green; release and debug builds
+  warning-free):
+
+  | Test | Covers |
+  |---|---|
+  | `tests/testDenseLayerForward.f90` | `DenseLayer%forward` numeric correctness on a hand-built 3x2 layer (W rows `[1,2]`, `[3,4]`, `[5,6]`, bias `[10,20,30]`, `x = [1,1]` → `[13,27,41]`), checked against both hardcoded constants and an independently recomputed row-wise `W(i,:) * x + b(i)`; asserts the result length equals `n_out`. |
+  | `tests/testDenseLayerShape.f90` | `dense_init` shape invariants on two shapes (3/2 and 4/3): `size(weights,1) == n_out`, `size(weights,2) == n_in`, `size(bias) == n_out`; an un-initialized layer reports `output_size() == 0`, `parameter_count() == 0` and unallocated arrays. |
+  | `tests/testDenseLayerInit.f90` | `dense_init` records `n_in`/`n_out`, zero-fills weights and bias (the v1 contract), yields `output_size() == n_out`; repeated init on an already-allocated layer works and fully overwrites the bookkeeping. |
+  | `tests/testDenseLayerParamCount.f90` | `parameter_count == n_out * n_in + n_out` for two shapes and equals `size(weights) + size(bias)`; zero before init. |
+  | `tests/testDenseLayerDispatch.f90` | Polymorphic dispatch through a `class(AbstractLayer), allocatable` variable allocated from a `DenseLayer` source: `output_size`, `parameter_count` and `forward` all resolve to the concrete dense implementations (the headline deliverable). |
+
+### Notes
+
+- Both new modules are **not** re-exported through `mFortranNeuralNetwork`
+  yet (consistent with `mOptimizers` and `mActivations`); they will be wired
+  into the umbrella module when `Network` lands.
+- The `mAbstractLayer` and `mDenseLayer` module `@version` FORD tags were
+  synced to `0.4.0` to track the `VERSION` file, per the documentation rule
+  that `@version` mirrors `VERSION`.
+- The library version moves `0.3.0 → 0.4.0` (new functionality,
+  backward-compatible); `get_version()` and the generated `mVersion` module
+  derive `0.4.0` from `VERSION` automatically (no source changes needed).
+
 ## [0.3.0] - 2026-10-26
 
 ### Added

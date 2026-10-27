@@ -9,12 +9,13 @@ changes and [`AGENTS.md`](../AGENTS.md) for the authoritative style rules.
 
 ## Overview
 
-As of version **0.2.0** the library consists of a single entry-point module,
+As of version **0.4.0** the library consists of a single entry-point module,
 augmented by a small version module (`mVersion`) that the build generates
-from the `VERSION` file, plus the first internal implementation modules of the
-planned architecture: `mOptimizers` (optimizer strategies) and `mActivations`
-(element-wise activation functions; see below). The overall repository layout
-(per `AGENTS.md`) is:
+from the `VERSION` file, plus the internal implementation modules of the
+planned architecture: `mOptimizers` (optimizer strategies), `mActivations`
+(element-wise activation functions) and the layer modules `mAbstractLayer`
+(abstract layer base) and `mDenseLayer` (fully-connected affine layer; see
+below). The overall repository layout (per `AGENTS.md`) is:
 
 ```
 src/        Fortran library sources (one module per file)
@@ -136,6 +137,59 @@ derivative with respect to the pre-activation `z`.
 | `fn` | `class(Activation), intent(in) :: self`; `real(real64), intent(in) :: z(:)`; result `a(size(z))` | Element-wise activation value. `pure`. Not `elemental` by design: the deferred binding's passed-object dummy is polymorphic (`class(Activation)`), which `elemental` forbids, so the formula is applied element-wise in the implementation. |
 | `deriv` | `class(Activation), intent(in) :: self`; `real(real64), intent(in) :: z(:)`; result `d(size(z))` | Element-wise derivative w.r.t. the pre-activation `z`, which backpropagation multiplies the upstream gradient by. `pure`. |
 
+### `mAbstractLayer` — abstract layer base (internal)
+
+Defined in `src/mAbstractLayer.f90` (version **0.4.0**). This is the third
+internal module of the architecture planned in
+[`memory/API_DESIGN.md`](memory/API_DESIGN.md) (section 3, `AbstractLayer`) to
+land. Like `mOptimizers` and `mActivations` it is **not** currently
+re-exported through `mFortranNeuralNetwork`: no `Network` type exists yet, so
+today it is consumed directly (by the tests below, alongside
+`mDenseLayer`) and will be wired into the umbrella module when the network
+layer arrives. It depends on nothing but `iso_fortran_env` (`real64`), so it
+compiles independently of the not-yet-written `mNetwork`.
+
+The forward-only design is intentional for v1: backward/gradient methods are
+deliberately excluded because the network driver owns backpropagation
+(`API_DESIGN.md` §3). The `parameter_count` binding lets that driver size
+flat gradient buffers without knowing layer internals.
+
+#### Public API
+
+| Symbol | Kind | Description |
+|---|---|---|
+| `AbstractLayer` | `abstract type` | Base for all neural network layer kinds. Three deferred bindings `forward`, `output_size` and `parameter_count`, all `pure`. The base carries no state; all shape and parameter data live in the concrete extensions (starting with `DenseLayer` in `mDenseLayer`). Its abstract interfaces are declared after the type using the same forward-reference pattern as `mActivations`/`mOptimizers`. |
+
+| Binding | Arguments | Notes |
+|---|---|---|
+| `forward` | `class(AbstractLayer), intent(in) :: self`; `real(real64), intent(in) :: x(:)`; result `allocatable y(:)` | Pure evaluation of the layer on a single 1-D input vector. The result is `allocatable` because the abstract interface cannot fix the output length from the base type alone — only the concrete implementation knows `n_out`. |
+| `output_size` | `class(AbstractLayer), intent(in) :: self`; result `integer n` | The number of outputs the layer produces (`n_out`), used to validate layer-to-layer shapes and allocate caches. `pure`. |
+| `parameter_count` | `class(AbstractLayer), intent(in) :: self`; result `integer n` | Total trainable scalars (weights plus biases), used by the future driver to size flat gradient/optimizer buffers. For a dense layer this is `n_out * n_in + n_out`. `pure`. |
+
+### `mDenseLayer` — fully-connected affine layer (internal)
+
+Defined in `src/mDenseLayer.f90` (version **0.4.0**). This module provides
+`DenseLayer`, the first concrete `extends(AbstractLayer)` type: a
+fully-connected affine transform `y = matmul(W, x) + b`. Like the other
+internal modules it is **not** currently re-exported through
+`mFortranNeuralNetwork`: no `Network` type exists yet, so it is consumed
+directly (by the tests below) and will be wired into the umbrella module when
+the network layer arrives. The module depends on `iso_fortran_env` (`real64`)
+and `mAbstractLayer`.
+
+The layer applies **no** activation: pairing each layer with an `Activation`
+from `mActivations` is the future network driver's job, keeping this type a
+pure affine transform. The weights are stored as `W(n_out, n_in)` per
+`.github/skills/neural-networks/SKILL.md`, so the forward pass is a single
+`matmul` call and backpropagation needs no transpose convention.
+
+#### Public API
+
+| Symbol | Kind | Description |
+|---|---|---|
+| `DenseLayer` | `type, extends(AbstractLayer)` | A dense (fully-connected) layer with public components `weights(:,:)` (`n_out x n_in`), `bias(:)` (`n_out`), `n_in` and `n_out` (both `0` until `dense_init`), mirroring the open-component simplicity of `mActivations`/`mOptimizers`. Implements the three deferred bindings: `forward` (pure) as `matmul(W, x) + b`, `output_size` (pure) as `n_out`, `parameter_count` (pure) as `n_out * n_in + n_out`. |
+| `dense_init(self, n_in, n_out)` | `public module subroutine` | Allocates and ZERO-fills the parameters, establishing the shape invariants `size(weights,1) == n_out`, `size(weights,2) == n_in`, `size(bias) == n_out` and recording the dimensions. Allocates, so it is not `pure`; it releases any existing allocations first, so repeated init/resize is safe. Randomized init (Xavier/He + seed) is deliberately deferred to a future feature; the symmetric-zero caveat of zero weights is documented at the source level rather than hidden. |
+
 ## Tests
 
 Tests are standalone programs under `tests/` named
@@ -155,6 +209,11 @@ and is discovered and run by `make test`.
 | `tests/testActivationsSigmoid.f90` | Sigmoid `fn`/`deriv`: value at 0, symmetry, monotonicity, known values, and the derivative range `(0, 0.25]`. |
 | `tests/testActivationsSigmoidStability.f90` | `±1000` inputs stay finite and in-bounds via `ieee_arithmetic`, proving the overflow-safe branch. |
 | `tests/testActivationsDispatch.f90` | Polymorphic dispatch through a `class(Activation)` polymorphic variable proves the deferred bindings resolve correctly. |
+| `tests/testDenseLayerForward.f90` | `DenseLayer%forward` numeric correctness on a hand-built 3x2 layer (`x = [1,1]` → `[13,27,41]`), checked against hardcoded constants and an independently recomputed row-wise `W(i,:) * x + b(i)`; asserts the result length equals `n_out`. |
+| `tests/testDenseLayerShape.f90` | `dense_init` shape invariants on two shapes (3/2 and 4/3); an un-initialized layer reports `output_size() == 0`, `parameter_count() == 0` and unallocated arrays. |
+| `tests/testDenseLayerInit.f90` | `dense_init` records `n_in`/`n_out`, zero-fills weights and bias, yields `output_size() == n_out`; repeated init on an already-allocated layer works and fully overwrites the bookkeeping. |
+| `tests/testDenseLayerParamCount.f90` | `parameter_count == n_out * n_in + n_out` for two shapes and equals `size(weights) + size(bias)`; zero before init. |
+| `tests/testDenseLayerDispatch.f90` | Polymorphic dispatch through a `class(AbstractLayer), allocatable` variable allocated from a `DenseLayer` source: `output_size`, `parameter_count` and `forward` all resolve to the concrete dense implementations. |
 
 ## Build-system notes
 

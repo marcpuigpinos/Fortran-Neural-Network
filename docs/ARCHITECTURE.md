@@ -9,27 +9,34 @@ changes and [`AGENTS.md`](../AGENTS.md) for the authoritative style rules.
 
 ## Overview
 
-As of version **0.4.0** the library consists of a single entry-point module,
+As of version **0.4.1** the library consists of a single entry-point module,
 augmented by a small version module (`mVersion`) that the build generates
 from the `VERSION` file, plus the internal implementation modules of the
 planned architecture: `mOptimizers` (optimizer strategies), `mActivations`
 (element-wise activation functions) and the layer modules `mAbstractLayer`
 (abstract layer base) and `mDenseLayer` (fully-connected affine layer; see
-below). The overall repository layout (per `AGENTS.md`) is:
+below). Since 0.4.1 compilation is delegated to **fpm** (the Fortran Package
+Manager); the Fortran sources and public API themselves are unchanged from
+0.4.0. The overall repository layout (per `AGENTS.md`) is:
 
 ```
 src/        Fortran library sources (one module per file)
-tests/      Standalone test programs, tests/test*.f90
+test/       Standalone test programs, test/test*.f90
 docs/       Design docs (this file) and CHANGELOG.md
-build/      Generated artifacts (never committed)
-Makefile    release / debug / test / docs / clean targets
+build/      Generated artifacts (never committed; owned by fpm)
+fpm.toml    fpm manifest (library + test auto-discovery)
+Makefile    thin front-end: release / debug / test / docs / clean targets
 VERSION     semantic version (MAJOR.MINOR.PATCH)
 ```
 
-The build is driven entirely by the root `Makefile` using `gfortran`
-(`-std=f2008`) with two profiles: `release` (`-O2`) and `debug`
-(`-g -fcheck=all -Wall -Wextra`). Sources under `src/` and tests under
-`tests/test*.f90` are discovered automatically.
+The root `Makefile` is a thin front-end: it generates the version module from
+`VERSION` and then invokes `fpm` (Fortran Package Manager, see `fpm.toml`),
+which drives `gfortran` and owns compilation, module dependency ordering and
+the `build/` tree, using fpm's built-in profiles `release` (optimized) and
+`debug` (checked: bounds checking plus extra warnings). The project's Fortran
+2008 rule (`-std=f2008`) is passed to fpm via `--flag`, as fpm 0.12 has no
+manifest key for the language standard. Library sources under `src/` and test
+programs under `test/` are discovered automatically by fpm.
 
 ## Modules
 
@@ -47,19 +54,20 @@ for the exports listed below.
 
 `get_version` is a pure function; aside from allocating the result it has no
 side effects and performs no I/O. The returned value is **build-generated**,
-not a hand-maintained literal: the `Makefile` derives it from the `VERSION`
-file at the repo root (see Build-system notes below).
+not a hand-maintained literal: the `Makefile` front-end derives it from the
+`VERSION` file at the repo root and fpm compiles it (see Build-system notes
+below).
 
 #### Version source (`mVersion`)
 
 `mFortranNeuralNetwork` itself holds no version literal; `get_version` simply
 returns the `library_version` parameter `USE`d from the generated `mVersion`
-module (`build/generated/mVersion.f90`), which the `Makefile` recreates
-whenever `VERSION` changes:
+module (`src/mVersion.f90`), which the `Makefile` front-end recreates whenever
+`VERSION` changes and fpm then compiles into the library:
 
 | Symbol | Kind | Origin | Description |
 |---|---|---|---|
-| `mVersion::library_version` | `public` named constant, `character(len=*)` | Generated at build time from `VERSION` into `build/generated/mVersion.f90` (git-ignored, never edited by hand) | Single source of truth for the library version string. |
+| `mVersion::library_version` | `public` named constant, `character(len=*)` | Generated at build time from `VERSION` into `src/mVersion.f90` (git-ignored, never edited by hand) so fpm compiles it as part of the library | Single source of truth for the library version string. |
 
 Callers still depend on a runtime query rather than a hard-coded literal; the
 constant merely moved from a hand-edited source to a build-generated one.
@@ -192,28 +200,28 @@ pure affine transform. The weights are stored as `W(n_out, n_in)` per
 
 ## Tests
 
-Tests are standalone programs under `tests/` named
+Tests are standalone programs under `test/` named
 `test<MainNameInPascalCase>.f90` (e.g. `testVersion.f90`), where the `program`
 statement uses the same name as the file. Each prints `PASS <name>` on success
 or aborts with `error stop 1` and a `FAIL <name> <reason>` message on failure,
-and is discovered and run by `make test`.
+and is auto-discovered by fpm and run by `make test` (→ `fpm test`).
 
 | Test | Covers |
 |---|---|
-| `tests/testVersion.f90` | `get_version()` equals the `VERSION` file contents (read from disk and trimmed at runtime; the working directory is the repo root under `make test`) and has the same length. |
-| `tests/testOptimizersStep.f90` | One `GradientDescent%update` step matches `W - lr*dW` / `b - lr*db` exactly (independently computed), and the `intent(in)` gradients are left unmodified. |
-| `tests/testOptimizersZeroLr.f90` | `learning_rate = 0` leaves weights and biases unchanged (no-op step). |
-| `tests/testOptimizersConvergence.f90` | Repeated gradient-descent steps minimise a quadratic and converge to its analytic minimum. |
-| `tests/testOptimizersDispatch.f90` | Virtual dispatch through a `class(Optimizer)` polymorphic variable reaches the `GradientDescent` implementation. |
-| `tests/testActivationsRelu.f90` | ReLU `fn`/`deriv`, including the `deriv(0) = 0` kink convention. |
-| `tests/testActivationsSigmoid.f90` | Sigmoid `fn`/`deriv`: value at 0, symmetry, monotonicity, known values, and the derivative range `(0, 0.25]`. |
-| `tests/testActivationsSigmoidStability.f90` | `±1000` inputs stay finite and in-bounds via `ieee_arithmetic`, proving the overflow-safe branch. |
-| `tests/testActivationsDispatch.f90` | Polymorphic dispatch through a `class(Activation)` polymorphic variable proves the deferred bindings resolve correctly. |
-| `tests/testDenseLayerForward.f90` | `DenseLayer%forward` numeric correctness on a hand-built 3x2 layer (`x = [1,1]` → `[13,27,41]`), checked against hardcoded constants and an independently recomputed row-wise `W(i,:) * x + b(i)`; asserts the result length equals `n_out`. |
-| `tests/testDenseLayerShape.f90` | `dense_init` shape invariants on two shapes (3/2 and 4/3); an un-initialized layer reports `output_size() == 0`, `parameter_count() == 0` and unallocated arrays. |
-| `tests/testDenseLayerInit.f90` | `dense_init` records `n_in`/`n_out`, zero-fills weights and bias, yields `output_size() == n_out`; repeated init on an already-allocated layer works and fully overwrites the bookkeeping. |
-| `tests/testDenseLayerParamCount.f90` | `parameter_count == n_out * n_in + n_out` for two shapes and equals `size(weights) + size(bias)`; zero before init. |
-| `tests/testDenseLayerDispatch.f90` | Polymorphic dispatch through a `class(AbstractLayer), allocatable` variable allocated from a `DenseLayer` source: `output_size`, `parameter_count` and `forward` all resolve to the concrete dense implementations. |
+| `test/testVersion.f90` | `get_version()` equals the `VERSION` file contents (read from disk and trimmed at runtime; fpm runs test executables with CWD = the repo root) and has the same length. |
+| `test/testOptimizersStep.f90` | One `GradientDescent%update` step matches `W - lr*dW` / `b - lr*db` exactly (independently computed), and the `intent(in)` gradients are left unmodified. |
+| `test/testOptimizersZeroLr.f90` | `learning_rate = 0` leaves weights and biases unchanged (no-op step). |
+| `test/testOptimizersConvergence.f90` | Repeated gradient-descent steps minimise a quadratic and converge to its analytic minimum. |
+| `test/testOptimizersDispatch.f90` | Virtual dispatch through a `class(Optimizer)` polymorphic variable reaches the `GradientDescent` implementation. |
+| `test/testActivationsRelu.f90` | ReLU `fn`/`deriv`, including the `deriv(0) = 0` kink convention. |
+| `test/testActivationsSigmoid.f90` | Sigmoid `fn`/`deriv`: value at 0, symmetry, monotonicity, known values, and the derivative range `(0, 0.25]`. |
+| `test/testActivationsSigmoidStability.f90` | `±1000` inputs stay finite and in-bounds via `ieee_arithmetic`, proving the overflow-safe branch. |
+| `test/testActivationsDispatch.f90` | Polymorphic dispatch through a `class(Activation)` polymorphic variable proves the deferred bindings resolve correctly. |
+| `test/testDenseLayerForward.f90` | `DenseLayer%forward` numeric correctness on a hand-built 3x2 layer (`x = [1,1]` → `[13,27,41]`), checked against hardcoded constants and an independently recomputed row-wise `W(i,:) * x + b(i)`; asserts the result length equals `n_out`. |
+| `test/testDenseLayerShape.f90` | `dense_init` shape invariants on two shapes (3/2 and 4/3); an un-initialized layer reports `output_size() == 0`, `parameter_count() == 0` and unallocated arrays. |
+| `test/testDenseLayerInit.f90` | `dense_init` records `n_in`/`n_out`, zero-fills weights and bias, yields `output_size() == n_out`; repeated init on an already-allocated layer works and fully overwrites the bookkeeping. |
+| `test/testDenseLayerParamCount.f90` | `parameter_count == n_out * n_in + n_out` for two shapes and equals `size(weights) + size(bias)`; zero before init. |
+| `test/testDenseLayerDispatch.f90` | Polymorphic dispatch through a `class(AbstractLayer), allocatable` variable allocated from a `DenseLayer` source: `output_size`, `parameter_count` and `forward` all resolve to the concrete dense implementations. |
 
 ## Build-system notes
 
@@ -222,22 +230,28 @@ and is discovered and run by `make test`.
 `VERSION` is the single source of truth for the version string; every other
 copy is derived by the build:
 
-- **Library:** `VERSION` → `build/generated/mVersion.f90` (module `mVersion`
-  exposing the `library_version` parameter) → `get_version()`. The generated
-  file lives in git-ignored `build/` and is regenerated whenever `VERSION`
-  changes; the `Makefile` aborts with a parse-time `$(error ...)` if
-  `VERSION` is missing or empty.
+- **Library:** `VERSION` → `src/mVersion.f90` (module `mVersion` exposing
+  the `library_version` parameter) → `get_version()`. The `Makefile`
+  front-end generates the file into `src/` (git-ignored via `.gitignore`,
+  never committed) so fpm compiles it as part of the library; it is
+  regenerated whenever `VERSION` changes, and the `Makefile` aborts with a
+  parse-time `$(error ...)` if `VERSION` is missing or empty.
 - **Documentation:** `VERSION` → `ford.md.in` (template whose `version:` key
   holds the `@NN_VERSION@` placeholder) → `build/ford.md` → `build/docs/`
   (`make docs` substitutes the version and runs FORD; template paths are
   relative to `build/`, where the rendered config lives).
 
-### Host toolchain adaptations
+### Build engine (fpm)
 
-Two host-specific adaptations are recorded in `CHANGELOG.md` (`0.0.0`) and
-should be preserved unless the underlying tooling changes:
+Since `0.4.1` (see [`CHANGELOG.md`](CHANGELOG.md)) compilation is delegated to
+**fpm** (Fortran Package Manager). fpm owns module dependency ordering, the
+`build/` output tree, and running the discovered test programs; the root
+`Makefile` is a thin front-end that injects the version module and then calls
+`fpm build --profile release|debug` / `fpm test`.
 
-- `MODULE`/`USE` dependency discovery is implemented with `awk` (not `grep`)
-  for portability across `grep` builds.
-- Compiler-generated depfiles (`-MMD`/`-MD`) are intentionally not used, as
-  they force the C preprocessor on lowercase `.f90` files with this `gfortran`.
+- The Fortran 2008 strictness flag `-std=f2008` is passed to every fpm
+  invocation via `--flag`, since fpm 0.12 has no manifest key for selecting
+  the language standard. The `gfortran` toolchain is otherwise unchanged.
+- The earlier hand-written gfortran rules and the `awk`-based `MODULE`/`USE`
+  dependency discovery (recorded in the `0.0.0` release) were removed: that
+  ordering is now fpm's responsibility.

@@ -7,6 +7,62 @@ Changelog](https://keepachangelog.com/) format, following [semantic
 versioning](https://semver.org/). The current release is also recorded in the
 `VERSION` file at the repository root. Entries are listed newest first.
 
+## [0.4.1] - 2026-10-28
+
+Build-system migration: the **Fortran Package Manager (fpm)** is now the
+build/dependency engine for compilation, with the root `Makefile` kept as a
+thin front-end. This is a patch release: the Fortran sources and the public
+API are untouched — `get_version()` and every library module behave exactly
+as before; only the tooling that compiles, tests and cleans the project
+changed.
+
+### Added
+
+- **`fpm.toml`** (new manifest at the repository root): fpm is now the
+  build/dependency engine. With auto-discovery enabled (`auto-executables`,
+  `auto-tests` and `auto-examples` in `[build]`), fpm finds the library
+  under `src/` and every standalone test program under `test/*.f90`, and
+  owns compilation, module dependency ordering and the `build/` tree. The
+  default `gfortran` toolchain is unchanged. The `version` key in the
+  manifest is a placeholder — `VERSION` remains the single source of truth.
+
+### Changed
+
+- **The root `Makefile` is now a thin front-end.** It derives
+  `VERSION_TEXT` from the `VERSION` file (the parse-time `$(error ...)`
+  guard is kept), generates the version module, and invokes fpm. All the
+  hand-written gfortran object rules and awk-based module-dependency
+  machinery were removed. Target names are unchanged and map onto fpm:
+  - `make release` → `fpm build --profile release`
+  - `make debug` → `fpm build --profile debug`
+  - `make test` → `fpm test`
+  - `make docs` → unchanged `sed` + `ford` flow rendering `ford.md.in`
+  - `make clean` → `fpm clean --skip` plus `rm -rf build` and removal of
+    the generated version module
+- **The generated version module moved from `build/generated/mVersion.f90`
+  to `src/mVersion.f90`** so fpm compiles it as part of the library. It is
+  still derived from `VERSION` as the single source of truth and remains
+  git-ignored (never committed, regenerated at build time).
+- **Test directory renamed `tests/` → `test/` (singular)**, the fpm
+  auto-discovery location for test programs. The 16 test programs are
+  unchanged and all pass; fpm runs test executables with CWD = the repo
+  root, so `testVersion`'s relative read of the `VERSION` file keeps
+  working.
+- **Fortran 2008 (`-std=f2008`) is now passed to fpm via `--flag` on every
+  invocation**, since fpm 0.12 has no manifest key for selecting the
+  language standard. The gfortran toolchain itself is unchanged.
+- **`.gitignore` now lists `src/mVersion.f90`** (the relocated generated
+  module) and the FORD config `ford.md.in` had its exclude path updated
+  `../tests` → `../test`.
+- `get_version()` and the entire library API are **unchanged**; consumers
+  and tests are not affected.
+
+### Notes
+
+- The library version moves `0.4.0 → 0.4.1` (patch: build/tooling change,
+  no API change); `get_version()` and the generated `mVersion` module
+  derive `0.4.1` from `VERSION` automatically (no source changes needed).
+
 ## [0.4.0] - 2026-10-27
 
 ### Added

@@ -2,6 +2,9 @@
 # Build artifacts
 build/
 
+# Generated version module (derived from VERSION at build time) — never committed
+src/mVersion.f90
+
 # Fortran object and module files
 *.o
 *.obj

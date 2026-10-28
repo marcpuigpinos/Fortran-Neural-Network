@@ -3,9 +3,9 @@
 # Fortran Neural Network
 
 A neural network library implemented in modern **Fortran** (Fortran 2008),
-built with `gfortran` and driven by a plain `make` workflow. The project is
-developed through a structured, role-based multi-agent workflow (see
-[Agent Workflow](#agent-workflow)).
+built with `gfortran` via the **Fortran Package Manager (fpm)** and driven by
+a thin `make` front-end. The project is developed through a structured,
+role-based multi-agent workflow (see [Agent Workflow](#agent-workflow)).
 
 > **Status:** The repository conventions, build layout, and agent workflow are
 > defined in [`AGENTS.md`](AGENTS.md). Library sources live under [`src/`](src)
@@ -33,10 +33,11 @@ free-form `.f90` file; the file name need not match the module name:
 ```
 Fortran-Neural-Network/
 ├── src/          # Fortran library sources (one module per file)
-├── tests/        # Standalone test programs: test<PascalCase>.f90
+├── test/         # Standalone test programs: test<PascalCase>.f90
 ├── docs/         # Design docs + CHANGELOG.md (per-version entries)
-├── build/        # Generated artifacts (never committed)
-├── Makefile      # release / debug / test / docs / clean targets
+├── build/        # Generated artifacts (never committed; owned by fpm)
+├── fpm.toml      # fpm manifest (library + test auto-discovery)
+├── Makefile      # thin front-end: release / debug / test / docs / clean
 ├── VERSION       # semantic version (MAJOR.MINOR.PATCH)
 └── AGENTS.md     # Project conventions, source of truth for all agents
 ```
@@ -58,27 +59,32 @@ The full, authoritative style and structure rules are in
 
 ## Requirements
 
+- [`fpm`](https://github.com/fortran-lang/fpm) (Fortran Package Manager) —
+  the build/dependency engine that compiles the library and runs the tests
 - `gfortran` supporting the Fortran 2008 standard (`-std=f2008`)
 - GNU `make`
 
 ## Build
 
-All builds run from the repository root through the `Makefile`:
+All builds run from the repository root through the `Makefile`, which is a
+thin front-end that injects the version module (from `VERSION`) and then
+delegates compilation to **fpm** (see `fpm.toml`):
 
 | Command | Description | Output |
 |---|---|---|
-| `make release` | Optimized build (`-O2`) | `build/release/` |
-| `make debug`   | Checked build (`-g -fcheck=all -Wall -Wextra`) | `build/debug/` |
-| `make test`    | Build the test suite and run it against the debug build | — |
+| `make release` | Optimized build (`fpm build --profile release`) | `build/` (fpm profile directory) |
+| `make debug`   | Checked build (`fpm build --profile debug`, checks + extra warnings) | `build/` (fpm profile directory) |
+| `make test`    | Build and run the test suite via `fpm test` | — |
 | `make docs`    | Generate the FORD HTML API documentation | `build/docs/` |
-| `make clean`   | Remove build artifacts | — |
+| `make clean`   | Remove build artifacts (`fpm clean` plus the `build/` tree) | — |
 
-Tests are discovered automatically from `tests/test*.f90`; adding a new test
-does not require editing the `Makefile`.
+Tests are discovered automatically by fpm from the `test/` directory
+(`test/*.f90`); adding a new test does not require editing the `Makefile`
+or `fpm.toml`.
 
 ## Testing
 
-Each test is a standalone program `tests/test<Name>.f90` (PascalCase, e.g.
+Each test is a standalone program `test/test<Name>.f90` (PascalCase, e.g.
 `testVersion.f90`) that:
 
 - exercises one area of the library,

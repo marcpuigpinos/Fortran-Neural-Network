@@ -1,0 +1,34 @@
+# AI Generated
+#
+# fpm (Fortran Package Manager) manifest: the build/dependency engine for the
+# library. The root Makefile stays a thin front-end that injects the version
+# module (src/mVersion.f90, generated from VERSION) and then calls fpm. The
+# hand-written gfortran object/module-discovery machinery is removed; fpm now
+# owns compilation and dependency ordering.
+
+name = "fortran-neural-network"
+
+# The version here is NOT the single source of truth. The real library version
+# lives in the VERSION file at the repo root and is injected into the generated
+# mVersion module (see the Makefile) at build time, so keep this placeholder.
+version = "0.0.0"
+
+# fpm owns the build: auto-discover library sources (src/), standalone test
+# programs (test/*.f90), and any examples. The standard gfortran toolchain and
+# the per-profile flags are applied by `fpm build --profile <release|debug>`.
+[build]
+auto-executables = true
+auto-tests = true
+auto-examples = true
+
+# Library sources stay at the fpm default source directory (src); no explicit
+# [library] paths are needed. Do not add per-test [[test]] entries: the
+# standalone test<Name>.f90 programs in test/ are discovered automatically.
+
+# Fortran 2008 strictness is applied by the Makefile via `fpm --flag
+# -std=f2008`. (fpm 0.12 has no `[fortran] standard` manifest key; only
+# implicit-typing style toggles live there.) The default gfortran toolchain is
+# unchanged.
+[fortran]
+implicit-typing = false
+implicit-external = false

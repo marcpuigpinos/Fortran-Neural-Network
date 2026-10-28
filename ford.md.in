@@ -5,7 +5,7 @@ author: Fortran-Neural-Network project
 license: MIT
 src_dir: ../src
 output_dir: ../build/docs
-exclude_dir: ../tests ../build
+exclude_dir: ../test ../build
 extensions: f90
 graph: true
 search: true
